@@ -193,7 +193,7 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
             console.log("\n🎉 ¡ÉXITO TOTAL! Imagen guardada y lista.");
 
             // 🟢 NUEVO: Construimos la URL pública de Render y se la mandamos a Woztell
-            const urlPublicaImg = `https://${req.get('host')}/public/cotizacion.png`;
+            const urlPublicaImg = `https://${req.get('host')}/public/cotizacion_final_test.png`;
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
         }
 
