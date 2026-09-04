@@ -194,7 +194,7 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
 
             // 🟢 Usamos la URL directa de Render (sin usar req)
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
-            const urlPublicaImg = `${baseUrl}/public/cotizacion_final_test.png`;
+            const urlPublicaImg = `${baseUrl}/cotizacion_final_test.png`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
         }
