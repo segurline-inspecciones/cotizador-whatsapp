@@ -188,12 +188,14 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
         };
         const bufferImagen = await moduloImagen.generarImagenCotizacion(vehiculoString, companiasProcesadas);
 
-        if (bufferImagen) {
-            fs.writeFileSync('./cotizacion_final_test.png', bufferImagen);
+       if (bufferImagen) {
+            fs.writeFileSync('./public/cotizacion_final_test.png', bufferImagen);
             console.log("\n🎉 ¡ÉXITO TOTAL! Imagen guardada y lista.");
 
-            // 🟢 NUEVO: Construimos la URL pública de Render y se la mandamos a Woztell
-            const urlPublicaImg = `https://${req.get('host')}/public/cotizacion_final_test.png`;
+            // 🟢 Usamos la URL directa de Render (sin usar req)
+            const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
+            const urlPublicaImg = `${baseUrl}/public/cotizacion_final_test.png`;
+            
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
         }
 
