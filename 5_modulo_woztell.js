@@ -61,13 +61,13 @@ async function enviarImagen(numeroDestino, urlImagen) {
 
 // 🟢 NUEVA FUNCIÓN: Enciende el Live Chat vía Open API de Woztell
 async function activarLiveChat(memberId) {
-    if (!memberId) return console.log("⚠️ Faltó el memberId para activar Live Chat.");
+    if (!memberId) return console.log("⚠️ [WOZTELL] Faltó el memberId para activar Live Chat.");
     console.log(`\n👨‍💻 [WOZTELL] Activando Live Chat para el member ${memberId}...`);
     
     const url = `https://open.api.woztell.com/v3?accessToken=${WOZTELL_TOKEN}`;
     const query = `
     mutation ToggleLiveChat($input: toggleLiveChatInput!) {
-        toggleLiveChat(input: $input) { ok err }
+        toggleLiveChat(input: $input) { ok err err_code }
     }`;
     const variables = { input: { memberId: memberId, liveChat: true } };
 
@@ -78,10 +78,11 @@ async function activarLiveChat(memberId) {
             body: JSON.stringify({ query, variables })
         });
         const data = await res.json();
-        if (data.data?.toggleLiveChat?.ok === 1) {
-            console.log("✅ [WOZTELL] ¡Live Chat activado exitosamente!");
+        
+        if (data.data && data.data.toggleLiveChat && data.data.toggleLiveChat.ok === 1) {
+            console.log("✅ [WOZTELL] ¡Live Chat activado exitosamente en la plataforma!");
         } else {
-            console.log("❌ [WOZTELL] Error al activar Live Chat:", data);
+            console.log("❌ [WOZTELL] Error al activar Live Chat. Respuesta de Meta/Woztell:", JSON.stringify(data));
         }
     } catch (error) {
         console.error("❌ [WOZTELL] Falla de conexión en Live Chat:", error.message);
