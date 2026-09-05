@@ -13,7 +13,7 @@ const moduloWoztell = require('./5_modulo_woztell');
 
 let reglasNegocio = null;
 
-// 🟢 LA MEMORIA DEL BOT 
+// 🟢 LA MEMORIA DEL BOT (Solo para manejar las opciones de versiones, sin silenciar nunca)
 const memoriaBot = {}; 
 
 app.get('/', (req, res) => res.send('🟢 Cotizador Segurline funcionando ok.'));
@@ -29,21 +29,14 @@ app.post('/webhook', async (req, res) => {
     const textoCliente = req.body.mensaje || (req.body.data && req.body.data.text ? req.body.data.text : "");
     const numeroCliente = req.body.telefono || req.body.from || "5491169799220"; 
     
-    // 🔴 EL FIX CLAVE: Atrapamos el ID de Woztell venga del Flow o de un texto simple
+    // Atrapamos el ID de Woztell venga del Flow o de un texto simple
     const wozMemberId = req.body.memberId || req.body.member || (req.body.data && req.body.data.member);
 
-    // 🟢 MOVEMOS LOS LOGS ARRIBA: Para saber siempre qué entró al server
     console.log(`\n========================================`);
     if (req.body.datos_vehiculo) {
         console.log(`📩 NUEVO INGRESO POR FLOW (Tel: ${numeroCliente})`);
     } else {
         console.log(`📩 NUEVO MENSAJE: "${textoCliente}" (Tel: ${numeroCliente})`);
-    }
-
-    // 🛑 ESCUDO "MODO LIVE": Si el bot fue apagado, frenamos la ejecución acá
-    if (memoriaBot[numeroCliente] && memoriaBot[numeroCliente].estado === "PAUSADO") {
-        console.log(`🔇 [SERVIDOR] Bot silenciado. El cliente ya está en Live Chat con un humano.`);
-        return;
     }
 
     try {
@@ -56,7 +49,7 @@ app.post('/webhook', async (req, res) => {
                 console.log(`🙋‍♂️ [SERVIDOR] Opción inválida / Derivado a asesor.`);
                 await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Entendido. Un asesor experto se estará poniendo en contacto con vos a la brevedad para realizarte una cotización súper personalizada.");
                 if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
-                memoriaBot[numeroCliente] = { estado: "PAUSADO" };
+                delete memoriaBot[numeroCliente];
                 return;
             }
 
@@ -79,11 +72,11 @@ app.post('/webhook', async (req, res) => {
             datosAuto = await moduloIA.extraerDatosVehiculo(textoCliente);
         }
 
+        // 🛑 ESCUDO 1: Faltan datos críticos
         if (!datosAuto || !datosAuto.listo_para_cotizar) {
             console.log("⚠️ Faltan datos críticos, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Me faltan algunos detalles para cotizar tu seguro automáticamente. ¡No te preocupes! Ya te derivo con un asesor de nuestro equipo para que lo revise y se contacte con vos a la brevedad.");
             if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
-            memoriaBot[numeroCliente] = { estado: "PAUSADO" };
             return;
         }
 
@@ -102,11 +95,11 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
+        // 🛑 ESCUDO 2: Zona no encontrada
         if (!zona.valido) {
             console.log(`❌ Zona inválida (${zona.error}). Derivando a asesor...`);
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Por tu zona de residencia (Código Postal o Localidad), necesitamos hacer una validación manual de riesgo para darte el precio exacto. Te derivo a un asesor que se estará comunicando con vos muy pronto.");
             if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
-            memoriaBot[numeroCliente] = { estado: "PAUSADO" };
             return;
         }
 
@@ -116,11 +109,11 @@ app.post('/webhook', async (req, res) => {
         // 🟢 4. BUSCAMOS VERSIONES EN WOKER
         const versiones = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
         
+        // 🛑 ESCUDO 3: Vehículo no encontrado
         if (versiones.length === 0) {
             console.log("❌ Sin versiones para ese modelo, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos por este chat en breve.");
             if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
-            memoriaBot[numeroCliente] = { estado: "PAUSADO" };
             return;
         }
 
@@ -159,11 +152,11 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
         datosAuto.valorGnc = reglasNegocio.valorGncK1; 
         const wokerData = await moduloWoker.cotizarEnWoker(idWoker, datosAuto);
         
+        // 🛑 ESCUDO 4: Cotización fallida en aseguradora
         if (!wokerData || wokerData.error) {
             console.log("⚠️ [SERVIDOR] Cotización fallida en Woker, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tuvimos un pequeño inconveniente técnico al conectar con las aseguradoras. Ya te derivo con un asesor para que genere tu cotización manualmente y te la envíe por este medio.");
             if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
-            memoriaBot[numeroCliente] = { estado: "PAUSADO" };
             return;
         }
 
@@ -255,15 +248,12 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
             const urlPublicaImg = `${baseUrl}/public/cotizacion_final_test.png`;
             
-            // 1. Enviamos la imagen
+            // 1. Enviamos la imagen con la cotización
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
 
-            // 2. 🟢 LÓGICA DE CIERRE EXITOSO
-            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\nYa pausé mis respuestas automáticas. Un asesor humano tomará tu respuesta enseguida para enviarte el detalle completo de la póliza y los pasos para contratarla.");
+            // 2. Mandamos el texto de cierre y activamos el Live Chat en Woztell (el servidor sigue escuchando con normalidad)
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\nUn asesor humano tomará tu respuesta enseguida para enviarte el detalle completo de la póliza y los pasos para contratarla.");
             if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
-            
-            // Silenciamos el bot
-            memoriaBot[numeroCliente] = { estado: "PAUSADO" };
         }
 
     } catch (error) {
