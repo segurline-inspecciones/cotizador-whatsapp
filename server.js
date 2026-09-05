@@ -30,49 +30,60 @@ app.post('/webhook', async (req, res) => {
     const numeroCliente = req.body.telefono || req.body.from || "5491169799220"; 
     
     console.log(`\n========================================`);
-    console.log(`📩 NUEVO MENSAJE: "${textoCliente}" (Tel: ${numeroCliente})`);
+    // Detectamos visualmente en consola si entró un Flow o un Texto
+    if (req.body.datos_vehiculo) {
+        console.log(`📩 NUEVO INGRESO POR FLOW (Tel: ${numeroCliente})`);
+    } else {
+        console.log(`📩 NUEVO MENSAJE: "${textoCliente}" (Tel: ${numeroCliente})`);
+    }
 
     try {
         // 🟢 1. REVISAMOS SI EL CLIENTE ESTABA ELIGIENDO UNA OPCIÓN
-        if (memoriaBot[numeroCliente] && memoriaBot[numeroCliente].estado === "ESPERANDO_VERSION") {
+        // Si entra un Flow nuevo, ignoramos la memoria vieja
+        if (memoriaBot[numeroCliente] && memoriaBot[numeroCliente].estado === "ESPERANDO_VERSION" && !req.body.datos_vehiculo) {
             const numeroElegido = parseInt(textoCliente.trim());
             const sesion = memoriaBot[numeroCliente];
 
-            // LÓGICA DE ESCAPE: Si no es número, es menor a 1, o es mayor a la cantidad de autos de la lista
+            // LÓGICA DE ESCAPE
             if (isNaN(numeroElegido) || numeroElegido < 1 || numeroElegido > sesion.opciones.length) {
                 console.log(`🙋‍♂️ [SERVIDOR] Cliente derivado a atención humana (Respuesta: ${textoCliente}).`);
                 await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Un asesor se estará poniendo en contacto con vos a la brevedad para realizarte una cotización personalizada.");
-                
-                delete memoriaBot[numeroCliente]; // Limpiamos la memoria para liberar al bot
+                delete memoriaBot[numeroCliente]; 
                 return;
             }
 
-            // Si eligió una opción correcta de la lista de autos:
             const versionSeleccionada = sesion.opciones[numeroElegido - 1];
             console.log(`✅ [SERVIDOR] Cliente eligió la opción ${numeroElegido}: ${versionSeleccionada.descripcion}`);
-            
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "⏳ ¡Excelente! Aguardá unos segundos que estoy generando tu cotización...");
 
             const datosAuto = sesion.datosAuto;
-            delete memoriaBot[numeroCliente]; // Limpiamos la memoria porque ya avanzamos
-            
+            delete memoriaBot[numeroCliente]; 
             return await dispararCotizacion(versionSeleccionada.id, datosAuto, numeroCliente);
         }
 
-        // 🟢 2. SI ES UN MENSAJE NUEVO, EMPEZAMOS DE CERO
-        const datosAuto = await moduloIA.extraerDatosVehiculo(textoCliente);
-        if (!datosAuto || !datosAuto.listo_para_cotizar) return console.log("⚠️ Faltan datos críticos.");
+        // 🟢 2. CAPTURAMOS LOS DATOS: ¿VIENEN DEL FLOW O USAMOS IA?
+        let datosAuto;
 
+        if (req.body.datos_vehiculo) {
+            datosAuto = req.body.datos_vehiculo;
+            console.log("⚡ [SERVIDOR] Datos limpios recibidos del Flow. Omitiendo extracción con IA...");
+            delete memoriaBot[numeroCliente]; // Limpiamos caché por si había algo colgado
+        } else {
+            datosAuto = await moduloIA.extraerDatosVehiculo(textoCliente);
+        }
+
+        if (!datosAuto || !datosAuto.listo_para_cotizar) return console.log("⚠️ Faltan datos críticos o es un saludo.");
+
+        // 🟢 3. BUSCAMOS VERSIONES EN WOKER (Usando los datos unificados)
         const versiones = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
         if (versiones.length === 0) return console.log("❌ Sin versiones para ese modelo.");
 
-        // PASO C: IA elige el token final
+        // 🟢 4. LA IA ACTÚA COMO ÁRBITRO FINAL
         const decision = await moduloIA.arbitroDeVersiones(datosAuto.version_buscada, versiones);
         
         if (!decision || !decision.seguro) {
             console.log("\n⚠️ [SERVIDOR] Múltiples versiones. Enviando TEXTO CON MEMORIA...");
             
-            // 🟢 TEXTO CON EMOJIS Y SALTOS DE LÍNEA
             let textoOpciones = `Encontré varias versiones para tu *${datosAuto.marca} ${datosAuto.modelo} ${datosAuto.anio}*.\n\nPor favor, indicá la correcta:\n\n`;
             
             let numOp = 1;
@@ -83,16 +94,9 @@ app.post('/webhook', async (req, res) => {
                 });
             }
             
-            // Agregamos el comodín del asesor con el último número
-            textoOpciones += ` *${numOp}️⃣ 🙋‍♂️ Ninguna de estas. Hablar con asesor.*\n\n`;
-            textoOpciones += `👉 *Respondé únicamente con el número* correspondiente.`;
+            textoOpciones += ` *${numOp}️⃣ 🙋‍♂️ Ninguna de estas. Hablar con asesor.*\n\n👉 *Respondé únicamente con el número* correspondiente.`;
             
-            memoriaBot[numeroCliente] = {
-                estado: "ESPERANDO_VERSION",
-                opciones: decision.opciones.slice(0, 6),
-                datosAuto: datosAuto
-            };
-
+            memoriaBot[numeroCliente] = { estado: "ESPERANDO_VERSION", opciones: decision.opciones.slice(0, 6), datosAuto: datosAuto };
             await moduloWoztell.enviarMensajeTexto(numeroCliente, textoOpciones);
             return; 
         }
@@ -104,7 +108,7 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-// FUNCIÓN SEPARADA PARA COTIZAR Y GENERAR IMAGEN
+// FUNCIÓN SEPARADA PARA COTIZAR Y GENERAR IMAGEN (SIN CAMBIOS)
 async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
     try {
         datosAuto.valorGnc = reglasNegocio.valorGncK1; 
@@ -190,18 +194,14 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
         const bufferImagen = await moduloImagen.generarImagenCotizacion(vehiculoString, companiasProcesadas);
 
        if (bufferImagen) {
-            // Nos aseguramos de que la carpeta public exista por las dudas
             if (!fs.existsSync('./public')) {
                 fs.mkdirSync('./public');
             }
 
-            // Guardamos el archivo exactamente con el nombre que el sistema busca
             fs.writeFileSync('./public/cotizacion_final_test.png', bufferImagen);
             console.log("\n🎉 ¡ÉXITO TOTAL! Imagen guardada y lista.");
 
-            // Armamos la URL pública limpia para Render
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
-            // 👇 Le agregamos el /public/ en el medio
             const urlPublicaImg = `${baseUrl}/public/cotizacion_final_test.png`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
