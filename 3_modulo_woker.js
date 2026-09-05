@@ -62,11 +62,11 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         }
 
         // --- C. PROVINCIA Y LOCALIDAD DINÁMICAS ---
-        let idProvincia = 2; // Default Capital/BA
-        let idLocalidad = 706; // Default
+        let idProvincia = null;
+        let idLocalidad = null; 
         
         try {
-            if (datosAuto.provincia) {
+            if (datosAuto.provincia && datosAuto.codigo_postal) {
                 const resProv = await fetch(`${BASE_URL}/catalogos/provincias`, { headers });
                 const catProv = await resProv.json();
                 const provObj = catProv.data?.find(p => p.label.toLowerCase().includes(datosAuto.provincia.toLowerCase().trim()));
@@ -76,8 +76,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
                     const resLoc = await fetch(`${BASE_URL}/catalogos/localidades?provincia=${idProvincia}`, { headers });
                     const catLoc = await resLoc.json();
                     
-                    // Buscamos la localidad que coincida con el CP del cliente
-                    const cpBuscado = datosAuto.codigo_postal.toString();
+                    const cpBuscado = datosAuto.codigo_postal.toString().trim();
                     const locObj = catLoc.data?.find(l => 
                         (l.codigo_postal && l.codigo_postal.toString() === cpBuscado) || 
                         (l.cp && l.cp.toString() === cpBuscado)
@@ -87,7 +86,13 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
                 }
             }
         } catch (error) {
-            console.log("⚠️ [WOKER] Falló la búsqueda dinámica de localidad. Usando defaults.");
+            console.log("⚠️ [WOKER] Error consultando catálogos de zonas.");
+        }
+
+        // 🛑 VALIDACIÓN ESTRICTA: Si no hay coincidencia, abortamos.
+        if (!idProvincia || !idLocalidad) {
+            console.log(`❌ [WOKER ERROR] Localidad no encontrada para el CP: ${datosAuto.codigo_postal}.`);
+            return { error: 'ZONA_NO_ENCONTRADA' };
         }
 
         // --- D. ARMADO DEL PAQUETE ---

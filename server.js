@@ -30,7 +30,6 @@ app.post('/webhook', async (req, res) => {
     const numeroCliente = req.body.telefono || req.body.from || "5491169799220"; 
     
     console.log(`\n========================================`);
-    // Detectamos visualmente en consola si entró un Flow o un Texto
     if (req.body.datos_vehiculo) {
         console.log(`📩 NUEVO INGRESO POR FLOW (Tel: ${numeroCliente})`);
     } else {
@@ -39,12 +38,10 @@ app.post('/webhook', async (req, res) => {
 
     try {
         // 🟢 1. REVISAMOS SI EL CLIENTE ESTABA ELIGIENDO UNA OPCIÓN
-        // Si entra un Flow nuevo, ignoramos la memoria vieja
         if (memoriaBot[numeroCliente] && memoriaBot[numeroCliente].estado === "ESPERANDO_VERSION" && !req.body.datos_vehiculo) {
             const numeroElegido = parseInt(textoCliente.trim());
             const sesion = memoriaBot[numeroCliente];
 
-            // LÓGICA DE ESCAPE
             if (isNaN(numeroElegido) || numeroElegido < 1 || numeroElegido > sesion.opciones.length) {
                 console.log(`🙋‍♂️ [SERVIDOR] Cliente derivado a atención humana (Respuesta: ${textoCliente}).`);
                 await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Un asesor se estará poniendo en contacto con vos a la brevedad para realizarte una cotización personalizada.");
@@ -61,22 +58,32 @@ app.post('/webhook', async (req, res) => {
             return await dispararCotizacion(versionSeleccionada.id, datosAuto, numeroCliente);
         }
 
-        // 🟢 2. CAPTURAMOS LOS DATOS: ¿VIENEN DEL FLOW O USAMOS IA?
+        // 🟢 2. CAPTURAMOS LOS DATOS
         let datosAuto;
-
         if (req.body.datos_vehiculo) {
             datosAuto = req.body.datos_vehiculo;
             console.log("⚡ [SERVIDOR] Datos limpios recibidos del Flow. Omitiendo extracción con IA...");
-            delete memoriaBot[numeroCliente]; // Limpiamos caché por si había algo colgado
+            delete memoriaBot[numeroCliente]; 
         } else {
             datosAuto = await moduloIA.extraerDatosVehiculo(textoCliente);
         }
 
-        if (!datosAuto || !datosAuto.listo_para_cotizar) return console.log("⚠️ Faltan datos críticos o es un saludo.");
+        // 🛑 ESCUDO 1: Faltan datos críticos
+        if (!datosAuto || !datosAuto.listo_para_cotizar) {
+            console.log("⚠️ Faltan datos críticos, derivando a asesor...");
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Me faltan algunos detalles para cotizar tu seguro automáticamente. ¡No te preocupes! Un asesor de nuestro equipo lo va a revisar y se contactará con vos a la brevedad.");
+            return;
+        }
 
-        // 🟢 3. BUSCAMOS VERSIONES EN WOKER (Usando los datos unificados)
+        // 🟢 3. BUSCAMOS VERSIONES EN WOKER
         const versiones = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
-        if (versiones.length === 0) return console.log("❌ Sin versiones para ese modelo.");
+        
+        // 🛑 ESCUDO 2: Auto no encontrado
+        if (versiones.length === 0) {
+            console.log("❌ Sin versiones para ese modelo, derivando a asesor...");
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos en breve.");
+            return;
+        }
 
         // 🟢 4. LA IA ACTÚA COMO ÁRBITRO FINAL
         const decision = await moduloIA.arbitroDeVersiones(datosAuto.version_buscada, versiones);
@@ -108,13 +115,24 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-// FUNCIÓN SEPARADA PARA COTIZAR Y GENERAR IMAGEN (SIN CAMBIOS)
+// FUNCIÓN SEPARADA PARA COTIZAR Y GENERAR IMAGEN
 async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
     try {
         datosAuto.valorGnc = reglasNegocio.valorGncK1; 
         const wokerData = await moduloWoker.cotizarEnWoker(idWoker, datosAuto);
         
-        if (!wokerData) return console.log("⚠️ [SERVIDOR] Cotización fallida en Woker.");
+        // 🛑 ESCUDO 3: Falló la localidad u otro error interno de Woker
+        if (wokerData && wokerData.error === 'ZONA_NO_ENCONTRADA') {
+            console.log("❌ Zona no encontrada, derivando a asesor...");
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Por tu zona de residencia, necesitamos hacer una validación manual de riesgo para darte el precio exacto. Un asesor se estará comunicando con vos muy pronto.");
+            return;
+        }
+
+        if (!wokerData || wokerData.error) {
+            console.log("⚠️ [SERVIDOR] Cotización fallida en Woker, derivando a asesor...");
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tuvimos un pequeño inconveniente técnico al conectar con las aseguradoras. Un asesor está generando tu cotización manualmente y te la enviará por este medio.");
+            return;
+        }
 
         const resultadosWoker = wokerData.cotizaciones;
         const ticketId = wokerData.ticketId;
