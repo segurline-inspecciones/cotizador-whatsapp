@@ -30,7 +30,6 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                 
                 .header { background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 50%, var(--secondary) 100%); color: white; padding: 30px 40px; display: flex; justify-content: space-between; align-items: center; }
                 
-                /* 🟢 Nuevo estilo para el Logo Principal */
                 .brand-container { background-color: #f8f9fa; padding: 8px 18px; border-radius: 50px; display: inline-flex; align-items: center; margin-bottom: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); }
                 .brand-container img { max-height: 40px; max-width: 180px; object-fit: contain; }
                 
@@ -56,7 +55,10 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                 .row-recommended td:last-child { border-right: 2px solid var(--primary); }
 
                 .company-cell { position: relative; display: flex; flex-direction: column; align-items: center; padding-top: 12px; }
-                .badge-recommended { position: absolute; top: -24px; background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 100%); color: white; font-size: 10px; font-weight: 900; padding: 5px 14px; border-radius: 20px; text-transform: uppercase; }
+                
+                /* 🟢 Modificado para alinear la imagen del emoji con el texto */
+                .badge-recommended { position: absolute; top: -24px; background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 100%); color: white; font-size: 10px; font-weight: 900; padding: 5px 14px; border-radius: 20px; text-transform: uppercase; display: flex; align-items: center; gap: 4px; }
+                
                 .logo-box { height: 45px; display: flex; align-items: center; margin-bottom: 8px; }
                 .logo-box img { max-width: 100px; max-height: 100%; object-fit: contain; }
                 .suma-asegurada { background-color: #f1f5f9; color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: 8px; font-weight: 800; }
@@ -65,7 +67,6 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                 .opt-num { background-color: rgba(47, 105, 136, 0.12); color: var(--mid); border-radius: 6px; font-size: 12px; font-weight: 900; padding: 2px 12px; }
                 .price { font-weight: 900; color: var(--text-dark); font-size: 19px; }
                 
-                /* 🟢 Mejora para textos largos en coberturas (permite múltiples líneas prolijas) */
                 .desc { font-size: 8.5px; color: #64748b; font-weight: 800; text-transform: uppercase; max-width: 130px; line-height: 1.3; margin-top: 4px; text-align: center; word-wrap: break-word; }
                 
                 .empty { color: #cbd5e1; font-size: 20px; font-weight: 900; }
@@ -105,8 +106,10 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                             <tr {{#if this.recomendado}}class="row-recommended"{{/if}}>
                                 <td>
                                     <div class="company-cell">
-                                        {{#if this.recomendado}}<span class="badge-recommended">💎 Recomendado</span>{{/if}}
-                                        {{#if this.oferta}}<span class="badge-recommended" style="background: #e11d48;">🔥 Oferta</span>{{/if}}
+                                        <!-- 🟢 Emojis reemplazados por imágenes de alta calidad (Twemoji) -->
+                                        {{#if this.recomendado}}<span class="badge-recommended"><img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f48e.png" style="width: 12px; height: 12px;"> Recomendado</span>{{/if}}
+                                        {{#if this.oferta}}<span class="badge-recommended" style="background: #e11d48;"><img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f525.png" style="width: 12px; height: 12px;"> Oferta</span>{{/if}}
+                                        
                                         <div class="logo-box"><img src="{{this.logoBase64}}"></div>
                                         <div class="suma-asegurada">Asg: {{this.sumaAsg}}</div>
                                         {{#if this.sumaGnc}}
@@ -127,7 +130,6 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                 </div>
                 
                 <div class="footer">
-                    <!-- 🟢 Footer Dinámico desde N1 -->
                     {{{vehiculo.footerDinamico}}}
                 </div>
             </div>
