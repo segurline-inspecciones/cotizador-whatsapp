@@ -1,5 +1,5 @@
 // Usamos process.env para cuando subamos a Render
-const WOKER_API_KEY = process.env.WOKER_API_KEY ;
+const WOKER_API_KEY = process.env.WOKER_API_KEY;
 const BASE_URL = "https://grupoab.woker.ar/api/v1";
 
 const headers = { 
@@ -7,7 +7,7 @@ const headers = {
     'Content-Type': 'application/json' 
 };
 
-// 1. Busca la marca y pre-filtra las versiones por modelo (AHORA DEVUELVE OBJETO PARA ESCUDO IA)
+// 1. Busca la marca y pre-filtra las versiones por modelo (CON ESCUDO IA)
 async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     console.log(`\n🔍 [WOKER] Buscando catálogo para: "${marcaTexto}" "${modeloTexto}" ${anio}...`);
     try {
@@ -21,7 +21,7 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
             return labelNorm === marcaBuscada || labelNorm.includes(marcaBuscada) || marcaBuscada.includes(labelNorm);
         });
 
-        // 🛑 Si no encuentra la marca, devuelve el error y la lista de marcas para que la IA la corrija
+        // 🛑 Si no encuentra la marca, devuelve el error y la lista para que la IA la corrija
         if (!marcaObj) {
             console.log(`⚠️ [WOKER] No se encontró la marca "${marcaTexto}". Solicitando rescate a IA...`);
             return { error: 'MARCA_NO_ENCONTRADA', opcionesMarcas: jsonMarcas.data || [], versiones: [] };
@@ -113,20 +113,9 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
 
         if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni.toString();
 
+        // 🟢 FIX DE FECHA: Como ya viene limpia desde Woztell o IA, se la pasamos directo a Woker
         if (datosAuto.fecha_nacimiento) {
-            try {
-                const fecha = new Date(Number(datosAuto.fecha_nacimiento));
-                if (!isNaN(fecha.getTime())) {
-                    const anio = fecha.getFullYear();
-                    const mes = String(fecha.getMonth() + 1).padStart(2, '0');
-                    const dia = String(fecha.getDate()).padStart(2, '0');
-                    payload.asegurado.fecha_de_nacimiento = `${anio}-${mes}-${dia}`;
-                } else {
-                    payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
-                }
-            } catch (e) {
-                payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
-            }
+            payload.asegurado.fecha_nacimiento = datosAuto.fecha_nacimiento;
         }
 
         if (datosAuto.gnc && datosAuto.valorGnc) {
