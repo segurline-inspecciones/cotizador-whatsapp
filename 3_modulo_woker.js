@@ -113,9 +113,9 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
 
         if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni.toString();
 
-        // 🟢 FIX DE FECHA: Como ya viene limpia desde Woztell o IA, se la pasamos directo a Woker
+       // 🟢 FIX DE FECHA: Woker exige estrictamente que la clave se llame "fecha_de_nacimiento"
         if (datosAuto.fecha_nacimiento) {
-            payload.asegurado.fecha_nacimiento = datosAuto.fecha_nacimiento;
+            payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
         }
 
         if (datosAuto.gnc && datosAuto.valorGnc) {
