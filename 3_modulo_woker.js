@@ -7,31 +7,43 @@ const headers = {
     'Content-Type': 'application/json' 
 };
 
-// 1. Busca la marca y pre-filtra las versiones por modelo
+// 1. Busca la marca y pre-filtra las versiones por modelo (AHORA DEVUELVE OBJETO PARA ESCUDO IA)
 async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
-    console.log(`\n🔍 [WOKER] Buscando catálogo para: ${marcaTexto} ${modeloTexto} ${anio}...`);
+    console.log(`\n🔍 [WOKER] Buscando catálogo para: "${marcaTexto}" "${modeloTexto}" ${anio}...`);
     try {
         const resMarcas = await fetch(`${BASE_URL}/catalogos/marcas?rama=1`, { headers });
         const jsonMarcas = await resMarcas.json();
-        const marcaObj = jsonMarcas.data?.find(m => m.label.toLowerCase() === marcaTexto.toLowerCase());
+        
+        const marcaBuscada = (marcaTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
 
+        const marcaObj = jsonMarcas.data?.find(m => {
+            const labelNorm = (m.label || "").toLowerCase().replace(/\s+/g, ' ').trim();
+            return labelNorm === marcaBuscada || labelNorm.includes(marcaBuscada) || marcaBuscada.includes(labelNorm);
+        });
+
+        // 🛑 Si no encuentra la marca, devuelve el error y la lista de marcas para que la IA la corrija
         if (!marcaObj) {
-            console.log("❌ [WOKER] No se encontró la marca en el catálogo.");
-            return [];
+            console.log(`⚠️ [WOKER] No se encontró la marca "${marcaTexto}". Solicitando rescate a IA...`);
+            return { error: 'MARCA_NO_ENCONTRADA', opcionesMarcas: jsonMarcas.data || [], versiones: [] };
         }
 
         const resVers = await fetch(`${BASE_URL}/catalogos/versiones?rama=1&marca=${marcaObj.id}&anio=${anio}`, { headers });
         const jsonVers = await resVers.json();
 
+        const modeloBuscado = (modeloTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
+
         const versionesFiltradas = (jsonVers.data || [])
-            .filter(v => v.label.toLowerCase().includes(modeloTexto.toLowerCase()))
+            .filter(v => {
+                const verLabel = (v.label || "").toLowerCase().replace(/\s+/g, ' ');
+                return verLabel.includes(modeloBuscado);
+            })
             .map(v => ({ id: v.id, descripcion: v.label }));
 
         console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones pre-filtradas.`);
-        return versionesFiltradas;
+        return { error: null, versiones: versionesFiltradas };
     } catch (error) {
         console.error("❌ [WOKER] Error buscando versiones:", error.message);
-        return [];
+        return { error: 'ERROR_API', versiones: [] };
     }
 }
 
@@ -40,7 +52,6 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
     try {
         let idProv = null;
 
-        // Buscar Provincia
         const resProv = await fetch(`${BASE_URL}/catalogos/provincias`, { headers });
         const catProv = await resProv.json();
         const provObj = catProv.data?.find(p => p.label.toLowerCase().includes(provinciaTexto.toLowerCase().trim()));
@@ -48,14 +59,12 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
         if (!provObj) return { valido: false, error: "PROVINCIA_NO_ENCONTRADA" };
         idProv = provObj.id;
 
-        // Buscar Localidad por Provincia + CP (Filtrado combinado)
         const resLoc = await fetch(`${BASE_URL}/catalogos/localidades?provincia=${idProv}&codigo_postal=${cp}`, { headers });
         const catLoc = await resLoc.json();
         const opciones = catLoc.data || [];
 
         if (opciones.length === 0) return { valido: false, error: "CP_SIN_LOCALIDADES" };
 
-        // Match Exacto de Localidad
         const locTextoLimpio = localidadTexto.toLowerCase().trim();
         const locObj = opciones.find(l => l.label.toLowerCase().trim() === locTextoLimpio);
 
@@ -73,13 +82,11 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
 async function cotizarEnWoker(tokenVersion, datosAuto) {
     console.log(`\n🚀 [WOKER] Disparando cotización oficial...`);
     try {
-        // Forma de pago
         const resForma = await fetch(`${BASE_URL}/catalogos/forma-pago`, { headers });
         const catForma = await resForma.json();
         const tarjetaCredito = catForma.data?.find(f => f.label.toLowerCase().includes('tarjeta'));
         const idFormaPago = tarjetaCredito ? tarjetaCredito.id : 2;
 
-        // Uso del vehículo
         const resUsos = await fetch(`${BASE_URL}/catalogos/usos`, { headers });
         const catUsos = await resUsos.json();
         let idUsoOficial = 1; 
@@ -92,14 +99,13 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
-        // Armado del paquete (usando los IDs que validó la nueva función)
         const payload = {
             vehiculo: { version: tokenVersion, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
             asegurado: { 
                 apellido: "Lead WhatsApp", 
                 tipo_persona: 1, 
-                provincia: datosAuto.idProvincia, // ID Oficial exacto
-                localidad: datosAuto.idLocalidad, // ID Oficial exacto
+                provincia: datosAuto.idProvincia, 
+                localidad: datosAuto.idLocalidad, 
                 codigo_postal: datosAuto.codigo_postal.toString() 
             },
             forma_de_pago: idFormaPago
@@ -107,7 +113,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
 
         if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni.toString();
 
-        // Escudo protector para Fechas de Nacimiento
         if (datosAuto.fecha_nacimiento) {
             try {
                 const fecha = new Date(Number(datosAuto.fecha_nacimiento));
@@ -124,7 +129,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             }
         }
 
-        // Accesorios (GNC)
         if (datosAuto.gnc && datosAuto.valorGnc) {
             const resAcc = await fetch(`${BASE_URL}/catalogos/accesorios`, { headers });
             const catAcc = await resAcc.json();
@@ -137,7 +141,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
 
         console.log("📦 [WOKER DEBUG] Enviando Payload:", JSON.stringify(payload, null, 2));
 
-        // Disparo a Woker
         const resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
         const jsonCot = await resCot.json();
 
@@ -150,7 +153,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         const ticketId = jsonCot.data.id;
         console.log(`⏳ [WOKER] Ticket #${ticketId} creado. Esperando resultados...`);
 
-        // Polling
         let terminada = false;
         while (!terminada) {
             await new Promise(resolve => setTimeout(resolve, 3000));
@@ -169,5 +171,4 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
     }
 }
 
-// Exportamos las tres funciones necesarias
 module.exports = { obtenerVersionesWoker, obtenerIdZona, cotizarEnWoker };

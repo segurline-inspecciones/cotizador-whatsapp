@@ -106,4 +106,28 @@ async function corregirLocalidadIA(localidadEscrita, opcionesWoker) {
     }
 }
 
-module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA };
+// 🟢 NUEVA FUNCIÓN: Rescate inteligente de Marcas
+async function corregirMarcaIA(marcaEscrita, opcionesWoker) {
+    try {
+        const prompt = `
+        El usuario escribió la marca de auto: "${marcaEscrita}".
+        Las opciones válidas en la base de datos son: ${JSON.stringify(opcionesWoker)}.
+        
+        Tu tarea: Encuentra la opción válida que mejor coincida con lo que escribió el usuario (corrigiendo errores de tipeo, o abreviaciones como "VW" para Volkswagen, "MB" para Mercedes Benz o "Chevy" para Chevrolet). 
+        Si hay una coincidencia clara, responde ÚNICAMENTE con el nombre exacto de la opción válida.
+        Si lo que escribió el usuario no tiene nada que ver con ninguna marca de auto, responde exactamente la palabra: null.
+        No des explicaciones, solo el nombre exacto o null.
+        `;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const result = await model.generateContent(prompt);
+        const respuesta = result.response.text().trim();
+        
+        return respuesta === "null" ? null : respuesta;
+    } catch (error) {
+        console.error("❌ Error en IA corrigiendo marca:", error);
+        return null;
+    }
+}
+
+module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA, corregirMarcaIA };
