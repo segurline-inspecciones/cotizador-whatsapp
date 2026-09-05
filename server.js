@@ -156,6 +156,20 @@ app.post('/webhook', async (req, res) => {
 
 async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId) {
     try {
+        // 🟢 ESCUDO: Si el servidor se acaba de reiniciar y no tiene las reglas, las forzamos a cargar
+        if (!reglasNegocio) {
+            console.log("⚠️ [SERVIDOR] Reglas no encontradas en memoria. Descargando desde Google Sheets...");
+            reglasNegocio = await moduloSheets.cargarReglasDeNegocio();
+            
+            // Si después de intentar cargarlas sigue nulo, abortamos con gracia
+            if (!reglasNegocio) {
+                console.log("❌ Error fatal: No se pudieron cargar las reglas de Google Sheets.");
+                await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tenemos un problema técnico conectando con los servidores. Te derivo a un asesor para que te ayude manualmente.");
+                if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
+                return;
+            }
+        }
+
         datosAuto.valorGnc = reglasNegocio.valorGncK1; 
         const wokerData = await moduloWoker.cotizarEnWoker(idWoker, datosAuto);
         
