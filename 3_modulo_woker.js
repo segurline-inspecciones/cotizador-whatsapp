@@ -1,5 +1,5 @@
 // Usamos process.env para cuando subamos a Render, o tu clave fija para probar ahora
-const WOKER_API_KEY = process.env.WOKER_API_KEY || "wkr_zScowU4k8Q1NCHZnoDjMXrNNjKwh8C-9DKaVmOKaPPI";
+const WOKER_API_KEY = process.env.WOKER_API_KEY ;
 const BASE_URL = "https://grupoab.woker.ar/api/v1";
 
 const headers = { 
@@ -38,16 +38,17 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     }
 }
 
-// Ahora recibe "tokenVersion" y el objeto completo "datosAuto" que armó la IA
+// 2. Dispara la cotización oficial
 async function cotizarEnWoker(tokenVersion, datosAuto) {
     console.log(`\n🚀 [WOKER] Disparando cotización oficial...`);
     try {
+        // --- A. FORMA DE PAGO ---
         const resForma = await fetch(`${BASE_URL}/catalogos/forma-pago`, { headers });
         const catForma = await resForma.json();
         const tarjetaCredito = catForma.data?.find(f => f.label.toLowerCase().includes('tarjeta'));
         const idFormaPago = tarjetaCredito ? tarjetaCredito.id : 2;
 
-        // 🟢 Inteligencia para buscar el Uso correcto dinámicamente
+        // --- B. USO DEL VEHÍCULO ---
         const resUsos = await fetch(`${BASE_URL}/catalogos/usos`, { headers });
         const catUsos = await resUsos.json();
         let idUsoOficial = 1; // Particular por defecto
@@ -60,19 +61,69 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
+        // --- C. PROVINCIA Y LOCALIDAD DINÁMICAS ---
+        let idProvincia = 2; // Default Capital/BA
+        let idLocalidad = 706; // Default
+        
+        try {
+            if (datosAuto.provincia) {
+                const resProv = await fetch(`${BASE_URL}/catalogos/provincias`, { headers });
+                const catProv = await resProv.json();
+                const provObj = catProv.data?.find(p => p.label.toLowerCase().includes(datosAuto.provincia.toLowerCase().trim()));
+                
+                if (provObj) {
+                    idProvincia = provObj.id;
+                    const resLoc = await fetch(`${BASE_URL}/catalogos/localidades?provincia=${idProvincia}`, { headers });
+                    const catLoc = await resLoc.json();
+                    
+                    // Buscamos la localidad que coincida con el CP del cliente
+                    const cpBuscado = datosAuto.codigo_postal.toString();
+                    const locObj = catLoc.data?.find(l => 
+                        (l.codigo_postal && l.codigo_postal.toString() === cpBuscado) || 
+                        (l.cp && l.cp.toString() === cpBuscado)
+                    );
+                    
+                    if (locObj) idLocalidad = locObj.id;
+                }
+            }
+        } catch (error) {
+            console.log("⚠️ [WOKER] Falló la búsqueda dinámica de localidad. Usando defaults.");
+        }
+
+        // --- D. ARMADO DEL PAQUETE ---
         const payload = {
             vehiculo: { version: tokenVersion, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
             asegurado: { 
-                apellido: "Lead WhatsApp", tipo_persona: 1, 
-                provincia: 2, localidad: 706, codigo_postal: datosAuto.codigo_postal.toString() 
+                apellido: "Lead WhatsApp", 
+                tipo_persona: 1, 
+                provincia: idProvincia, 
+                localidad: idLocalidad, 
+                codigo_postal: datosAuto.codigo_postal.toString() 
             },
             forma_de_pago: idFormaPago
         };
 
-        if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni;
-        if (datosAuto.fecha_nacimiento) payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
+        // Datos opcionales
+        if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni.toString();
 
-        // 🟢 Inyectar GNC con el valor dinámico del Excel
+        // Escudo protector para Fechas de Nacimiento (Meta manda timestamps numéricos)
+        if (datosAuto.fecha_nacimiento) {
+            try {
+                const fecha = new Date(Number(datosAuto.fecha_nacimiento));
+                if (!isNaN(fecha.getTime())) {
+                    const anio = fecha.getFullYear();
+                    const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+                    const dia = String(fecha.getDate()).padStart(2, '0');
+                    payload.asegurado.fecha_de_nacimiento = `${anio}-${mes}-${dia}`;
+                } else {
+                    payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento; // Fallback
+                }
+            } catch (e) {
+                payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
+            }
+        }
+
+        // --- E. ACCESORIOS (GNC) ---
         if (datosAuto.gnc && datosAuto.valorGnc) {
             const resAcc = await fetch(`${BASE_URL}/catalogos/accesorios`, { headers });
             const catAcc = await resAcc.json();
@@ -83,14 +134,24 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             }
         }
 
+        // 🐞 MODO DEBUG: Imprimimos qué le estamos mandando exactamente a Woker
+        console.log("📦 [WOKER DEBUG] Enviando Payload:", JSON.stringify(payload, null, 2));
+
+        // --- F. DISPARO A WOKER ---
         const resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
         const jsonCot = await resCot.json();
 
-        if (!resCot.ok || !jsonCot.data || !jsonCot.data.id) return null;
+        // 🐞 MODO DEBUG: Atrapamos el error exacto si nos rebota
+        if (!resCot.ok || !jsonCot.data || !jsonCot.data.id) {
+            console.log("❌ [WOKER ERROR] La API rechazó la cotización. Respuesta de Woker:");
+            console.log(JSON.stringify(jsonCot, null, 2));
+            return null;
+        }
 
         const ticketId = jsonCot.data.id;
-        console.log(`⏳ [WOKER] Ticket #${ticketId} creado (Uso ID: ${idUsoOficial}). Esperando...`);
+        console.log(`⏳ [WOKER] Ticket #${ticketId} creado. Esperando resultados...`);
 
+        // Polling para esperar que termine de cotizar
         let terminada = false;
         while (!terminada) {
             await new Promise(resolve => setTimeout(resolve, 3000));
@@ -104,9 +165,9 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         return { ticketId: ticketId, cotizaciones: jsonRes.data?.cotizaciones || [] };
 
     } catch (error) {
+        console.error("❌ [WOKER CATCH] Error crítico en la función:", error.message);
         return null;
     }
 }
 
-// Exportamos las dos funciones
 module.exports = { obtenerVersionesWoker, cotizarEnWoker };
