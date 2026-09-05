@@ -189,10 +189,16 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
         const bufferImagen = await moduloImagen.generarImagenCotizacion(vehiculoString, companiasProcesadas);
 
        if (bufferImagen) {
+            // Nos aseguramos de que la carpeta public exista por las dudas
+            if (!fs.existsSync('./public')) {
+                fs.mkdirSync('./public');
+            }
+
+            // Guardamos el archivo exactamente con el nombre que el sistema busca
             fs.writeFileSync('./public/cotizacion_final_test.png', bufferImagen);
             console.log("\n🎉 ¡ÉXITO TOTAL! Imagen guardada y lista.");
 
-            // 🟢 Usamos la URL directa de Render (sin usar req)
+            // Armamos la URL pública limpia para Render
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
             const urlPublicaImg = `${baseUrl}/cotizacion_final_test.png`;
             
