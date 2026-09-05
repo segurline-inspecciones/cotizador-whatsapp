@@ -68,24 +68,48 @@ app.post('/webhook', async (req, res) => {
             datosAuto = await moduloIA.extraerDatosVehiculo(textoCliente);
         }
 
-        // 🛑 ESCUDO 1: Faltan datos críticos
         if (!datosAuto || !datosAuto.listo_para_cotizar) {
             console.log("⚠️ Faltan datos críticos, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Me faltan algunos detalles para cotizar tu seguro automáticamente. ¡No te preocupes! Un asesor de nuestro equipo lo va a revisar y se contactará con vos a la brevedad.");
             return;
         }
 
-        // 🟢 3. BUSCAMOS VERSIONES EN WOKER
+        // 🟢 3. VALIDACIÓN GEOGRÁFICA Y CORRECCIÓN CON IA
+        let zona = await moduloWoker.obtenerIdZona(datosAuto.provincia, datosAuto.codigo_postal, datosAuto.localidad);
+
+        if (!zona.valido && zona.error === "LOCALIDAD_INCORRECTA") {
+            console.log(`⚠️ Localidad "${datosAuto.localidad}" no hace match exacto. Consultando IA para corregir tipeo...`);
+            const nombresOpciones = zona.opciones.map(o => o.label);
+            const localidadCorregida = await moduloIA.corregirLocalidadIA(datosAuto.localidad, nombresOpciones);
+
+            if (localidadCorregida) {
+                console.log(`🧠 IA corrigió la localidad a: ${localidadCorregida}`);
+                datosAuto.localidad = localidadCorregida;
+                // Volvemos a validar con el nombre corregido
+                zona = await moduloWoker.obtenerIdZona(datosAuto.provincia, datosAuto.codigo_postal, datosAuto.localidad);
+            }
+        }
+
+        if (!zona.valido) {
+            console.log(`❌ Zona inválida (${zona.error}). Derivando a asesor...`);
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Por tu zona de residencia (Código Postal o Localidad), necesitamos hacer una validación manual de riesgo para darte el precio exacto. Un asesor se estará comunicando con vos muy pronto.");
+            return;
+        }
+
+        // Guardamos los IDs oficiales en el objeto para que Woker los use directo
+        datosAuto.idProvincia = zona.idProvincia;
+        datosAuto.idLocalidad = zona.idLocalidad;
+
+        // 🟢 4. BUSCAMOS VERSIONES EN WOKER
         const versiones = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
         
-        // 🛑 ESCUDO 2: Auto no encontrado
         if (versiones.length === 0) {
             console.log("❌ Sin versiones para ese modelo, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos en breve.");
             return;
         }
 
-        // 🟢 4. LA IA ACTÚA COMO ÁRBITRO FINAL
+        // 🟢 5. LA IA ACTÚA COMO ÁRBITRO FINAL
         const decision = await moduloIA.arbitroDeVersiones(datosAuto.version_buscada, versiones);
         
         if (!decision || !decision.seguro) {
@@ -115,19 +139,12 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-// FUNCIÓN SEPARADA PARA COTIZAR Y GENERAR IMAGEN
 async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
     try {
         datosAuto.valorGnc = reglasNegocio.valorGncK1; 
+        // Woker ahora solo arma el payload y dispara, porque los IDs ya los calculamos arriba
         const wokerData = await moduloWoker.cotizarEnWoker(idWoker, datosAuto);
         
-        // 🛑 ESCUDO 3: Falló la localidad u otro error interno de Woker
-        if (wokerData && wokerData.error === 'ZONA_NO_ENCONTRADA') {
-            console.log("❌ Zona no encontrada, derivando a asesor...");
-            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Por tu zona de residencia, necesitamos hacer una validación manual de riesgo para darte el precio exacto. Un asesor se estará comunicando con vos muy pronto.");
-            return;
-        }
-
         if (!wokerData || wokerData.error) {
             console.log("⚠️ [SERVIDOR] Cotización fallida en Woker, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tuvimos un pequeño inconveniente técnico al conectar con las aseguradoras. Un asesor está generando tu cotización manualmente y te la enviará por este medio.");

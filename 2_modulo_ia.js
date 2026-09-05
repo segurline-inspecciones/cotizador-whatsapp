@@ -85,4 +85,31 @@ async function arbitroDeVersiones(versionBuscada, opcionesWoker) {
     }
 }
 
-module.exports = { extraerDatosVehiculo, arbitroDeVersiones };
+async function corregirLocalidadIA(localidadEscrita, opcionesWoker) {
+    try {
+        const prompt = `
+        El usuario escribió la localidad: "${localidadEscrita}".
+        Las opciones válidas en la base de datos son: ${JSON.stringify(opcionesWoker)}.
+        
+        Tu tarea: Encuentra la opción válida que mejor coincida con lo que escribió el usuario (corrigiendo errores de tipeo o abreviaciones). 
+        Si hay una coincidencia clara, responde ÚNICAMENTE con el nombre exacto de la opción válida.
+        Si lo que escribió el usuario no tiene nada que ver con ninguna opción, responde exactamente la palabra: null.
+        No des explicaciones, solo el nombre o null.
+        `;
+
+        // Asumiendo que tenés configurado el modelo como "genAI" o similar en tu archivo
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const result = await model.generateContent(prompt);
+        const respuesta = result.response.text().trim();
+        
+        return respuesta === "null" ? null : respuesta;
+    } catch (error) {
+        console.error("❌ Error en IA corrigiendo localidad:", error);
+        return null;
+    }
+}
+
+// Acordate de exportarla:
+// module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA };
+
+module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA };
