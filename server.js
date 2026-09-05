@@ -99,7 +99,6 @@ app.post('/webhook', async (req, res) => {
         datosAuto.idProvincia = zona.idProvincia;
         datosAuto.idLocalidad = zona.idLocalidad;
 
-        // 🟢 4. BUSCAMOS VERSIONES EN WOKER (CON ESCUDO DE IA PARA MARCA)
         let resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
         
         if (resWoker.error === "MARCA_NO_ENCONTRADA") {
@@ -110,7 +109,6 @@ app.post('/webhook', async (req, res) => {
             if (marcaCorregida) {
                 console.log(`🧠 IA corrigió la marca a: ${marcaCorregida}`);
                 datosAuto.marca = marcaCorregida;
-                // Reintentamos buscar con la marca limpia
                 resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
             }
         }
@@ -124,7 +122,6 @@ app.post('/webhook', async (req, res) => {
             return;
         }
 
-        // 🟢 5. LA IA ACTÚA COMO ÁRBITRO FINAL
         const decision = await moduloIA.arbitroDeVersiones(datosAuto.version_buscada, versiones);
         
         if (!decision || !decision.seguro) {
@@ -156,12 +153,9 @@ app.post('/webhook', async (req, res) => {
 
 async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId) {
     try {
-        // 🟢 ESCUDO: Si el servidor se acaba de reiniciar y no tiene las reglas, las forzamos a cargar
         if (!reglasNegocio) {
             console.log("⚠️ [SERVIDOR] Reglas no encontradas en memoria. Descargando desde Google Sheets...");
             reglasNegocio = await moduloSheets.cargarReglasDeNegocio();
-            
-            // Si después de intentar cargarlas sigue nulo, abortamos con gracia
             if (!reglasNegocio) {
                 console.log("❌ Error fatal: No se pudieron cargar las reglas de Google Sheets.");
                 await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tenemos un problema técnico conectando con los servidores. Te derivo a un asesor para que te ayude manualmente.");
@@ -200,10 +194,15 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             const sumaAsgGeneral = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valorSuma);
 
             let sumaGncVisual = null;
-            if (datosAuto.gnc) {
+            if (datosAuto.gnc && datosAuto.valorGnc) {
+                // 🟢 FIX 2: Limpiamos los signos raros del GNC para que la matemática no se rompa
+                const gncNumerico = Number(datosAuto.valorGnc.toString().replace(/[^0-9]/g, '')) || 0;
                 const topeVeintePorciento = valorSuma * 0.20;
-                const gncDefinitivo = Math.min(datosAuto.valorGnc, topeVeintePorciento);
-                sumaGncVisual = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(gncDefinitivo);
+                const gncDefinitivo = Math.min(gncNumerico, topeVeintePorciento);
+                
+                if (gncDefinitivo > 0) {
+                    sumaGncVisual = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(gncDefinitivo);
+                }
             }
 
             let nombreLogo = reglasGondola.nombre.toLowerCase().replace(/ /g, '-');
@@ -211,13 +210,18 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             if (nombreLogo.includes('sancor')) nombreLogo = 'sancor';
             if (nombreLogo.includes('atm')) nombreLogo = 'atm';
 
-            const etiquetaTxt = (reglasGondola.etiqueta || "").toLowerCase();
+            // 🟢 FIX 3: Convertimos cualquier emoji del Sheet en imagen de Twemoji
+            const etiquetaOriginal = (reglasGondola.etiqueta || "").trim();
+            const etiquetaHtml = etiquetaOriginal.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
+                return `<img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${m.codePointAt(0).toString(16)}.png" style="width: 13px; height: 13px; vertical-align: text-bottom; margin-right: 4px;">`;
+            });
+            const esOferta = etiquetaOriginal.toLowerCase().includes('oferta');
 
             const filaDiseno = {
                 nombre: reglasGondola.nombre,
                 orden: reglasGondola.orden,
-                recomendado: etiquetaTxt.includes('recomendado'),
-                oferta: etiquetaTxt.includes('oferta'),
+                etiqueta_html: etiquetaHtml, 
+                es_oferta: esOferta,
                 logoBase64: moduloImagen.getBase64Image(`${nombreLogo}.jpg`), 
                 sumaAsg: sumaAsgGeneral,
                 sumaGnc: sumaGncVisual 
@@ -255,6 +259,7 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             logoEmpresa: moduloImagen.getBase64Image('logo.png'), 
             footerDinamico: reglasNegocio.textoFooterN1 
         };
+        
         const bufferImagen = await moduloImagen.generarImagenCotizacion(vehiculoString, companiasProcesadas);
 
        if (bufferImagen) {

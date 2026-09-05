@@ -6,7 +6,15 @@ function getBase64Image(nombreArchivo) {
     try {
         const fullPath = path.resolve(__dirname, `./img/${nombreArchivo}`);
         const image = fs.readFileSync(fullPath);
-        return `data:image/jpeg;base64,${image.toString('base64')}`;
+        
+        // 🟢 FIX 1: Detectamos inteligentemente si es PNG o JPG para que el logo se vea
+        const extension = path.extname(nombreArchivo).toLowerCase();
+        let mimeType = 'image/jpeg';
+        if (extension === '.png') {
+            mimeType = 'image/png';
+        }
+
+        return `data:${mimeType};base64,${image.toString('base64')}`;
     } catch (e) {
         return ''; 
     }
@@ -56,12 +64,14 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
 
                 .company-cell { position: relative; display: flex; flex-direction: column; align-items: center; padding-top: 12px; }
                 
-                /* 🟢 Modificado para alinear la imagen del emoji con el texto */
-                .badge-recommended { position: absolute; top: -24px; background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 100%); color: white; font-size: 10px; font-weight: 900; padding: 5px 14px; border-radius: 20px; text-transform: uppercase; display: flex; align-items: center; gap: 4px; }
+                .badge-dinamica { position: absolute; top: -24px; background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 100%); color: white; font-size: 10px; font-weight: 900; padding: 5px 14px; border-radius: 20px; text-transform: uppercase; display: flex; align-items: center; gap: 4px; }
+                .badge-oferta { background: #e11d48; }
                 
                 .logo-box { height: 45px; display: flex; align-items: center; margin-bottom: 8px; }
                 .logo-box img { max-width: 100px; max-height: 100%; object-fit: contain; }
+                
                 .suma-asegurada { background-color: #f1f5f9; color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: 8px; font-weight: 800; }
+                .suma-gnc { background-color: #e0f2fe; color: #0284c7; font-size: 9.5px; padding: 4px 10px; border-radius: 8px; font-weight: 800; margin-top: 5px; box-shadow: inset 0 0 0 1px rgba(2, 132, 199, 0.2); }
 
                 .price-tag { display: flex; flex-direction: column; align-items: center; gap: 3px; }
                 .opt-num { background-color: rgba(47, 105, 136, 0.12); color: var(--mid); border-radius: 6px; font-size: 12px; font-weight: 900; padding: 2px 12px; }
@@ -103,17 +113,20 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                         </thead>
                         <tbody>
                             {{#each companias}}
-                            <tr {{#if this.recomendado}}class="row-recommended"{{/if}}>
+                            <tr {{#if this.etiqueta_html}}class="row-recommended"{{/if}}>
                                 <td>
                                     <div class="company-cell">
-                                        <!-- 🟢 Emojis reemplazados por imágenes de alta calidad (Twemoji) -->
-                                        {{#if this.recomendado}}<span class="badge-recommended"><img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f48e.png" style="width: 12px; height: 12px;"> Recomendado</span>{{/if}}
-                                        {{#if this.oferta}}<span class="badge-recommended" style="background: #e11d48;"><img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f525.png" style="width: 12px; height: 12px;"> Oferta</span>{{/if}}
+                                        <!-- 🟢 Emojis y Textos inyectados dinámicamente desde el Sheet -->
+                                        {{#if this.etiqueta_html}}
+                                        <span class="badge-dinamica {{#if this.es_oferta}}badge-oferta{{/if}}">
+                                            {{{this.etiqueta_html}}}
+                                        </span>
+                                        {{/if}}
                                         
                                         <div class="logo-box"><img src="{{this.logoBase64}}"></div>
                                         <div class="suma-asegurada">Asg: {{this.sumaAsg}}</div>
                                         {{#if this.sumaGnc}}
-                                        <div class="suma-asegurada" style="margin-top: 4px; background-color: #e0f2fe; color: #0284c7; font-size: 9px;">GNC: {{this.sumaGnc}}</div>
+                                        <div class="suma-gnc">GNC: {{this.sumaGnc}}</div>
                                         {{/if}}
                                     </div>
                                 </td>
