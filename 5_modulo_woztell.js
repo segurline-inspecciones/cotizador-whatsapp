@@ -61,5 +61,3 @@ async function enviarImagen(numeroDestino, urlImagen) {
 
 module.exports = { enviarMensajeTexto, enviarImagen }; // No olvides exportarla
 
-// 🟢 Exportamos SOLO el envío de texto
-module.exports = { enviarMensajeTexto };
