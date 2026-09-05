@@ -3,6 +3,7 @@ const fs = require('fs');
 const app = express();
 
 app.use(express.json());
+app.use('/public', express.static('public'));
 
 const moduloSheets = require('./1_modulo_sheets');
 const moduloIA = require('./2_modulo_ia');
@@ -200,7 +201,8 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente) {
 
             // Armamos la URL pública limpia para Render
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
-            const urlPublicaImg = `${baseUrl}/cotizacion_final_test.png`;
+            // 👇 Le agregamos el /public/ en el medio
+            const urlPublicaImg = `${baseUrl}/public/cotizacion_final_test.png`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
         }
