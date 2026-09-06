@@ -70,9 +70,26 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
         let idProv = null;
         const resProv = await fetch(`${BASE_URL}/catalogos/provincias`, { headers });
         const catProv = await resProv.json();
-        const provObj = catProv.data?.find(p => p.label.toLowerCase().includes(provinciaTexto.toLowerCase().trim()));
+        
+        // 🟢 FIX CIRUJANO: Traductor y Normalizador de Provincias (Especial para CABA)
+        let provBuscada = (provinciaTexto || "").toLowerCase().trim();
+        
+        if (provBuscada.includes('caba') || provBuscada.includes('autónoma') || provBuscada.includes('autonoma') || provBuscada.includes('capital federal')) {
+            provBuscada = 'capital federal';
+        }
 
-        if (!provObj) return { valido: false, error: "PROVINCIA_NO_ENCONTRADA" };
+        const provObj = catProv.data?.find(p => {
+            const labelNorm = p.label.toLowerCase().trim();
+            // Verifica coincidencia normal o la excepción de Capital Federal/CABA
+            return labelNorm.includes(provBuscada) || provBuscada.includes(labelNorm) || 
+                   (provBuscada === 'capital federal' && (labelNorm.includes('caba') || labelNorm.includes('capital')));
+        });
+
+        if (!provObj) {
+            console.log(`❌ [WOKER] No se encontró coincidencia para la provincia: ${provinciaTexto}`);
+            return { valido: false, error: "PROVINCIA_NO_ENCONTRADA" };
+        }
+        
         idProv = provObj.id;
 
         const resLoc = await fetch(`${BASE_URL}/catalogos/localidades?provincia=${idProv}&codigo_postal=${cp}`, { headers });
