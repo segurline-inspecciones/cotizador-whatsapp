@@ -32,7 +32,7 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`\n========================================`);
     if (req.body.datos_vehiculo) {
-        console.log(`📩 NUEVO INGRESO POR FLOW (Tel: ${numeroCliente})`);
+        console.log(`📩 NUEVO INGRESO POR FLOW (Tel: ${numeroCliente} | Member: ${wozMemberId || 'N/A'})`);
     } else {
         console.log(`📩 NUEVO MENSAJE: "${textoCliente}" (Tel: ${numeroCliente})`);
     }
@@ -101,22 +101,31 @@ app.post('/webhook', async (req, res) => {
 
         let resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
         
+        // 🟢 FIX 1: Blindaje extremo de la IA para la Marca (Evita que el servidor crashee si el archivo 2 no está actualizado)
         if (resWoker.error === "MARCA_NO_ENCONTRADA") {
-            console.log(`⚠️ Marca "${datosAuto.marca}" no hace match exacto. Consultando IA para corregir...`);
-            const nombresMarcas = resWoker.opcionesMarcas.map(m => m.label);
-            const marcaCorregida = await moduloIA.corregirMarcaIA(datosAuto.marca, nombresMarcas);
-
-            if (marcaCorregida) {
-                console.log(`🧠 IA corrigió la marca a: ${marcaCorregida}`);
-                datosAuto.marca = marcaCorregida;
-                resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
+            console.log(`⚠️ Marca "${datosAuto.marca}" no hace match exacto. Intentando consultar IA...`);
+            try {
+                if (typeof moduloIA.corregirMarcaIA === 'function') {
+                    const nombresMarcas = resWoker.opcionesMarcas.map(m => m.label);
+                    const marcaCorregida = await moduloIA.corregirMarcaIA(datosAuto.marca, nombresMarcas);
+                    if (marcaCorregida) {
+                        console.log(`🧠 IA corrigió la marca a: ${marcaCorregida}`);
+                        datosAuto.marca = marcaCorregida;
+                        resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
+                    }
+                } else {
+                    console.log("⚠️ [ALERTA] La función corregirMarcaIA no existe en tu archivo 2_modulo_ia.js. Saltando rescate de IA.");
+                }
+            } catch (e) {
+                console.error("❌ Error interno al intentar corregir marca:", e.message);
             }
         }
 
         const versiones = resWoker.versiones || [];
         
-        if (versiones.length === 0) {
-            console.log("❌ Sin versiones para ese modelo, derivando a asesor...");
+        // 🟢 FIX 1B: Si de todas formas no se encontró marca o modelo, deriva prolijamente al humano
+        if (resWoker.error || versiones.length === 0) {
+            console.log("❌ Sin versiones para ese modelo (o error de catálogo), derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos por este chat en breve.");
             if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
             return;
@@ -125,17 +134,23 @@ app.post('/webhook', async (req, res) => {
         const decision = await moduloIA.arbitroDeVersiones(datosAuto.version_buscada, versiones);
         
         if (!decision || !decision.seguro) {
+            // 🟢 FIX 2: Si la IA filtra y devuelve 0 opciones (ej: busca 1.8 y no existe), deriva directo.
+            if (!decision || !decision.opciones || decision.opciones.length === 0) {
+                console.log("❌ La IA descartó todas las versiones por falta de coincidencia. Derivando a asesor...");
+                await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos por este chat en breve.");
+                if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
+                return;
+            }
+
             console.log("\n⚠️ [SERVIDOR] Múltiples versiones. Enviando TEXTO CON MEMORIA...");
             
             let textoOpciones = `Encontré varias versiones para tu *${datosAuto.marca} ${datosAuto.modelo} ${datosAuto.anio}*.\n\nPor favor, indicá la correcta:\n\n`;
             
             let numOp = 1;
-            if (decision && decision.opciones) {
-                decision.opciones.slice(0, 6).forEach((op) => {
-                    textoOpciones += `${numOp}️⃣ *${op.descripcion}*\n\n`;
-                    numOp++;
-                });
-            }
+            decision.opciones.slice(0, 6).forEach((op) => {
+                textoOpciones += `${numOp}️⃣ *${op.descripcion}*\n\n`;
+                numOp++;
+            });
             
             textoOpciones += ` *${numOp}️⃣ 🙋‍♂️ Ninguna de estas. Hablar con asesor.*\n\n👉 *Respondé únicamente con el número* correspondiente.`;
             
@@ -164,7 +179,6 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             }
         }
 
-        // Enviamos a cotizar el valor bruto de la celda K1 (limpiando formato de moneda por las dudas)
         const topeK1 = Number(reglasNegocio.valorGncK1.toString().replace(/[^0-9]/g, '')) || 1500000;
         datosAuto.valorGnc = topeK1; 
 
@@ -196,7 +210,6 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             
             const sumaAsgGeneral = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valorSuma);
 
-            // 🟢 MATEMÁTICA EXACTA DEL GNC (Tope K1 vs 20% de Suma Asegurada)
             let sumaGncVisual = null;
             if (datosAuto.gnc) {
                 const topeVeintePorciento = valorSuma * 0.20;
@@ -212,7 +225,6 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             if (nombreLogo.includes('sancor')) nombreLogo = 'sancor';
             if (nombreLogo.includes('atm')) nombreLogo = 'atm';
 
-            // 🟢 TRADUCTOR DE EMOJIS (100% seguro)
             const etiquetaTxt = (reglasGondola.etiqueta || "").trim();
             const etiquetaHtml = etiquetaTxt.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
                 const hex = m.codePointAt(0).toString(16);
@@ -277,9 +289,15 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             const urlPublicaImg = `${baseUrl}/public/cotizacion_final_test.png`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
-
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.");
-            if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
+            
+            // 🟢 FIX 3: Trazabilidad estricta del encendido de Live Chat
+            if (wozMemberId) {
+                console.log(`👨‍💻 Solicitando encendido de Live Chat a Woztell para el MemberID: ${wozMemberId}...`);
+                await moduloWoztell.activarLiveChat(wozMemberId);
+            } else {
+                console.log(`⚠️ [ALERTA] No se pudo activar el Live Chat. El wozMemberId llegó vacío o indefinido desde el Flow.`);
+            }
         }
 
     } catch (error) {
