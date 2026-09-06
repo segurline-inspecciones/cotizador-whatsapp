@@ -1,3 +1,4 @@
+// Usamos process.env para cuando subamos a Render
 const WOKER_API_KEY = process.env.WOKER_API_KEY;
 const BASE_URL = "https://grupoab.woker.ar/api/v1";
 
@@ -6,7 +7,7 @@ const headers = {
     'Content-Type': 'application/json' 
 };
 
-// 1. Busca la marca y pre-filtra las versiones por modelo (CON LÍMITE EXTENDIDO Y PREPARACIÓN IA)
+// 1. Busca la marca y pre-filtra las versiones por modelo
 async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     console.log(`\n🔍 [WOKER] Buscando catálogo para: "${marcaTexto}" "${modeloTexto}" ${anio}...`);
     try {
@@ -15,22 +16,28 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
         
         const marcaBuscada = (marcaTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
 
-        const marcaObj = jsonMarcas.data?.find(m => {
-            const labelNorm = (m.label || "").toLowerCase().replace(/\s+/g, ' ').trim();
-            return labelNorm === marcaBuscada || labelNorm.includes(marcaBuscada) || marcaBuscada.includes(labelNorm);
-        });
+        // 🟢 FIX DEFINITIVO: Primero buscamos coincidencia EXACTA para evitar que "Renault" atrape a "Renault Trucks"
+        let marcaObj = jsonMarcas.data?.find(m => m.label.toLowerCase().trim() === marcaBuscada);
+        
+        // Si no hay match exacto, usamos el match parcial (ej: "Chevy" para "Chevrolet")
+        if (!marcaObj) {
+            marcaObj = jsonMarcas.data?.find(m => {
+                const labelNorm = m.label.toLowerCase().trim();
+                return labelNorm.includes(marcaBuscada) || marcaBuscada.includes(labelNorm);
+            });
+        }
 
         if (!marcaObj) {
             console.log(`⚠️ [WOKER] No se encontró la marca "${marcaTexto}". Solicitando rescate a IA...`);
             return { error: 'MARCA_NO_ENCONTRADA', opcionesMarcas: jsonMarcas.data || [], versiones: [] };
         }
 
-        // 🟢 FIX PAGINACIÓN: limit=1000
+        // Limit=1000 fuerza a que traiga TODO el catálogo de ese año sin ocultar autos
         const resVers = await fetch(`${BASE_URL}/catalogos/versiones?rama=1&marca=${marcaObj.id}&anio=${anio}&limit=1000&per_page=1000`, { headers });
         const jsonVers = await resVers.json();
 
         const totalDevueltos = jsonVers.data ? jsonVers.data.length : 0;
-        console.log(`📡 [WOKER DEBUG] La API devolvió un total de ${totalDevueltos} versiones crudas.`);
+        console.log(`📡 [WOKER DEBUG] La API devolvió un total de ${totalDevueltos} versiones crudas para la marca oficial "${marcaObj.label}".`);
 
         const modeloBuscado = (modeloTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -41,15 +48,14 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
             })
             .map(v => ({ id: v.id, descripcion: v.label }));
 
-        // 🟢 PREPARACIÓN PARA IA: Si no encuentra el modelo, extrae las palabras clave para ayudar a Gemini
+        // PREPARACIÓN PARA IA: Si no encuentra el modelo, extrae las palabras clave para ayudar a Gemini
         if (versionesFiltradas.length === 0) {
             console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
-            // Extraemos solo la primera palabra de los autos de ese año (ej: "Captur", "Kangoo")
             const palabrasClave = [...new Set((jsonVers.data || []).map(v => v.label.split(' ')[0]))].filter(Boolean).slice(0, 50);
             return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: palabrasClave, versiones: [] };
         }
 
-        console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones pre-filtradas.`);
+        console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones pre-filtradas para "${modeloBuscado}".`);
         return { error: null, versiones: versionesFiltradas };
     } catch (error) {
         console.error("❌ [WOKER] Error buscando versiones:", error.message);
