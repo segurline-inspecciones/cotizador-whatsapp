@@ -48,11 +48,13 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
             })
             .map(v => ({ id: v.id, descripcion: v.label }));
 
-        // PREPARACIÓN PARA IA: Si no encuentra el modelo, extrae las palabras clave para ayudar a Gemini
+        
+        // PREPARACIÓN PARA IA: Si no encuentra el modelo, mandamos una muestra de nombres completos
         if (versionesFiltradas.length === 0) {
             console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
-            const palabrasClave = [...new Set((jsonVers.data || []).map(v => v.label.split(' ')[0]))].filter(Boolean).slice(0, 50);
-            return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: palabrasClave, versiones: [] };
+            // 🟢 FIX: En lugar de la 1er palabra, mandamos una muestra de hasta 60 nombres completos
+            const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 60);
+            return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: muestraVersiones, versiones: [] };
         }
 
         console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones pre-filtradas para "${modeloBuscado}".`);

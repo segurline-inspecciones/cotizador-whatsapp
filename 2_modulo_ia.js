@@ -129,16 +129,18 @@ async function corregirMarcaIA(marcaEscrita, opcionesWoker) {
 }
 
 // 🟢 NUEVO ESCUDO IA PARA MODELOS
+// 🟢 NUEVO ESCUDO IA PARA MODELOS (Mejorado para leer textos completos)
 async function corregirModeloIA(modeloEscrito, opcionesModelos) {
     try {
         const prompt = `
-        El usuario escribió el modelo de auto: "${modeloEscrito}" (puede tener errores como "capture" o "cruzze").
-        Los modelos disponibles para esta marca en la base de datos son: ${JSON.stringify(opcionesModelos)}.
+        El usuario buscó el modelo de auto: "${modeloEscrito}" (puede tener errores como "capture" o "cruzze").
+        Aquí hay una muestra de las versiones completas disponibles en la base de datos para esta marca:
+        ${JSON.stringify(opcionesModelos)}
         
-        Tu tarea: Encuentra la palabra correcta del modelo que mejor coincida con lo que escribió el usuario.
-        Responde ÚNICAMENTE con el nombre exacto del modelo válido (ej: "Captur", "Cruze").
-        Si lo que escribió el usuario no se parece a ninguno de la lista, responde exactamente: null.
-        No des explicaciones, solo el nombre exacto o null.
+        Tu tarea: Identifica cuál es el nombre correcto del modelo que el usuario intentó escribir.
+        Debes responder ÚNICAMENTE con la palabra exacta que representa el modelo (ej: "Captur", "Cruze", "Gol").
+        No devuelvas toda la versión completa, solo la palabra clave del modelo.
+        Si lo que escribió el usuario no tiene ninguna relación con los autos de la lista, responde exactamente: null.
         `;
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
