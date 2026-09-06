@@ -7,6 +7,12 @@ const headers = {
     'Content-Type': 'application/json' 
 };
 
+// Función auxiliar universal para eliminar tildes y caracteres especiales
+const normalizarTexto = (str) => {
+    if (!str) return "";
+    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+};
+
 // 1. Busca la marca y pre-filtra las versiones por modelo
 async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     console.log(`\n🔍 [WOKER] Buscando catálogo para: "${marcaTexto}" "${modeloTexto}" ${anio}...`);
@@ -14,15 +20,15 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
         const resMarcas = await fetch(`${BASE_URL}/catalogos/marcas?rama=1`, { headers });
         const jsonMarcas = await resMarcas.json();
         
-        const marcaBuscada = (marcaTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
+        const marcaBuscada = normalizarTexto(marcaTexto);
 
-        // 🟢 FIX DEFINITIVO: Primero buscamos coincidencia EXACTA para evitar que "Renault" atrape a "Renault Trucks"
-        let marcaObj = jsonMarcas.data?.find(m => m.label.toLowerCase().trim() === marcaBuscada);
+        // 🟢 FIX DEFINITIVO: Primero buscamos coincidencia EXACTA
+        let marcaObj = jsonMarcas.data?.find(m => normalizarTexto(m.label) === marcaBuscada);
         
-        // Si no hay match exacto, usamos el match parcial (ej: "Chevy" para "Chevrolet")
+        // Si no hay match exacto, usamos el match parcial
         if (!marcaObj) {
             marcaObj = jsonMarcas.data?.find(m => {
-                const labelNorm = m.label.toLowerCase().trim();
+                const labelNorm = normalizarTexto(m.label);
                 return labelNorm.includes(marcaBuscada) || marcaBuscada.includes(labelNorm);
             });
         }
@@ -39,20 +45,18 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
         const totalDevueltos = jsonVers.data ? jsonVers.data.length : 0;
         console.log(`📡 [WOKER DEBUG] La API devolvió un total de ${totalDevueltos} versiones crudas para la marca oficial "${marcaObj.label}".`);
 
-        const modeloBuscado = (modeloTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
+        const modeloBuscado = normalizarTexto(modeloTexto);
 
         const versionesFiltradas = (jsonVers.data || [])
             .filter(v => {
-                const verLabel = (v.label || "").toLowerCase().replace(/\s+/g, ' ');
+                const verLabel = normalizarTexto(v.label);
                 return verLabel.includes(modeloBuscado);
             })
             .map(v => ({ id: v.id, descripcion: v.label }));
 
-        
         // PREPARACIÓN PARA IA: Si no encuentra el modelo, mandamos una muestra de nombres completos
         if (versionesFiltradas.length === 0) {
             console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
-            // 🟢 FIX: En lugar de la 1er palabra, mandamos una muestra de hasta 60 nombres completos
             const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 60);
             return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: muestraVersiones, versiones: [] };
         }
@@ -65,22 +69,24 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     }
 }
 
+// 2. Busca y valida la Provincia + Código Postal + Localidad
 async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
     try {
         let idProv = null;
         const resProv = await fetch(`${BASE_URL}/catalogos/provincias`, { headers });
         const catProv = await resProv.json();
         
-        // 🟢 FIX CIRUJANO: Traductor y Normalizador de Provincias (Especial para CABA)
-        let provBuscada = (provinciaTexto || "").toLowerCase().trim();
+        // 🟢 FIX UNIVERSAL: Quitamos tildes a lo que llega de WhatsApp
+        let provBuscada = normalizarTexto(provinciaTexto);
         
-        if (provBuscada.includes('caba') || provBuscada.includes('autónoma') || provBuscada.includes('autonoma') || provBuscada.includes('capital federal')) {
+        // Mantenemos la excepción para CABA
+        if (provBuscada.includes('caba') || provBuscada.includes('autonoma') || provBuscada.includes('capital federal')) {
             provBuscada = 'capital federal';
         }
 
         const provObj = catProv.data?.find(p => {
-            const labelNorm = p.label.toLowerCase().trim();
-            // Verifica coincidencia normal o la excepción de Capital Federal/CABA
+            // Quitamos tildes a lo que manda Woker
+            const labelNorm = normalizarTexto(p.label);
             return labelNorm.includes(provBuscada) || provBuscada.includes(labelNorm) || 
                    (provBuscada === 'capital federal' && (labelNorm.includes('caba') || labelNorm.includes('capital')));
         });
@@ -98,8 +104,9 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
 
         if (opciones.length === 0) return { valido: false, error: "CP_SIN_LOCALIDADES" };
 
-        const locTextoLimpio = localidadTexto.toLowerCase().trim();
-        const locObj = opciones.find(l => l.label.toLowerCase().trim() === locTextoLimpio);
+        // 🟢 FIX UNIVERSAL: También blindamos la Localidad contra tildes (ej: "Morón" vs "Moron")
+        const locTextoLimpio = normalizarTexto(localidadTexto);
+        const locObj = opciones.find(l => normalizarTexto(l.label) === locTextoLimpio);
 
         if (locObj) {
             return { valido: true, idProvincia: idProv, idLocalidad: locObj.id };
@@ -111,12 +118,13 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
     }
 }
 
+// 3. Dispara la cotización oficial
 async function cotizarEnWoker(tokenVersion, datosAuto) {
     console.log(`\n🚀 [WOKER] Disparando cotización oficial...`);
     try {
         const resForma = await fetch(`${BASE_URL}/catalogos/forma-pago`, { headers });
         const catForma = await resForma.json();
-        const tarjetaCredito = catForma.data?.find(f => f.label.toLowerCase().includes('tarjeta'));
+        const tarjetaCredito = catForma.data?.find(f => normalizarTexto(f.label).includes('tarjeta'));
         const idFormaPago = tarjetaCredito ? tarjetaCredito.id : 2;
 
         const resUsos = await fetch(`${BASE_URL}/catalogos/usos`, { headers });
@@ -124,10 +132,10 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         let idUsoOficial = 1; 
         
         if (datosAuto.uso === 3) { 
-            const usoUber = catUsos.data?.find(u => u.label.toLowerCase().includes('uber') || u.label.toLowerCase().includes('plataforma'));
+            const usoUber = catUsos.data?.find(u => normalizarTexto(u.label).includes('uber') || normalizarTexto(u.label).includes('plataforma'));
             if (usoUber) idUsoOficial = usoUber.id;
         } else if (datosAuto.uso === 2) { 
-            const usoComercial = catUsos.data?.find(u => u.label.toLowerCase().includes('comercial'));
+            const usoComercial = catUsos.data?.find(u => normalizarTexto(u.label).includes('comercial'));
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
@@ -149,7 +157,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         if (datosAuto.gnc && datosAuto.valorGnc) {
             const resAcc = await fetch(`${BASE_URL}/catalogos/accesorios`, { headers });
             const catAcc = await resAcc.json();
-            const gncItem = catAcc.data?.find(a => a.label.toLowerCase().includes('gnc') || a.label.toLowerCase().includes('gas'));
+            const gncItem = catAcc.data?.find(a => normalizarTexto(a.label).includes('gnc') || normalizarTexto(a.label).includes('gas'));
             
             if (gncItem) {
                 payload.accesorios = [{ accesorio: gncItem.id, valor: datosAuto.valorGnc }];
