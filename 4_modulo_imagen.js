@@ -4,7 +4,6 @@ const path = require('path');
 
 function getBase64Image(nombreArchivo) {
     try {
-        // 🟢 FIX 1: Usamos path.join que es 100% a prueba de fallos en Linux/Render
         const fullPath = path.join(__dirname, 'img', nombreArchivo);
         
         if (!fs.existsSync(fullPath)) {
@@ -33,7 +32,6 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
         <head>
             <meta charset="UTF-8">
             <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800;900&display=swap" rel="stylesheet">
-            <!-- 🟢 FIX 2: Librería oficial de Emojis inyectada -->
             <script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
             <style>
                 :root { --primary: #008679; --mid: #2f6988; --secondary: #545393; --bg-page: #f4f7f9; --text-dark: #1e293b; --text-muted: #64748b; }
@@ -41,7 +39,6 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                 body { font-family: 'Nunito', sans-serif; background-color: transparent; display: inline-block; margin: 0; padding: 20px; }
                 #captura { width: 950px; background-color: var(--bg-page); border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
                 
-                /* Estilo automático para todos los emojis que aparezcan */
                 img.emoji { width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; display: inline-block; }
 
                 .header { background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 50%, var(--secondary) 100%); color: white; padding: 30px 40px; display: flex; justify-content: space-between; align-items: center; }
@@ -91,7 +88,6 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                 .footer { text-align: center; padding: 20px; font-size: 14px; color: var(--text-muted); font-weight: 600; }
             </style>
         </head>
-        <!-- 🟢 FIX 2: Al cargar la vista invisible, traduce los emojis a imágenes -->
         <body onload="twemoji.parse(document.body)">
             <div id="captura">
                 <div class="header">
@@ -122,12 +118,12 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                         </thead>
                         <tbody>
                             {{#each companias}}
-                            <tr {{#if this.etiqueta_txt}}class="row-recommended"{{/if}}>
+                            <tr {{#if this.etiqueta_html}}class="row-recommended"{{/if}}>
                                 <td>
                                     <div class="company-cell">
-                                        {{#if this.etiqueta_txt}}
+                                        {{#if this.etiqueta_html}}
                                         <span class="badge-dinamica {{#if this.es_oferta}}badge-oferta{{/if}}">
-                                            {{this.etiqueta_txt}}
+                                            {{{this.etiqueta_html}}}
                                         </span>
                                         {{/if}}
                                         
@@ -162,7 +158,7 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
             html: htmlTemplate,
             content: { vehiculo: datosVehiculo, companias: companias },
             transparent: true,
-            waitUntil: 'networkidle0', // 🟢 FIX 3: Obliga a esperar que los emojis se descarguen antes de la foto
+            waitUntil: 'networkidle0', 
             puppeteerArgs: { args: ['--no-sandbox', '--disable-setuid-sandbox'] } 
         });
         

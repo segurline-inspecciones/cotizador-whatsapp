@@ -26,8 +26,14 @@ app.post('/webhook', async (req, res) => {
     res.status(200).send('EVENT_RECEIVED'); 
 
     const textoCliente = req.body.mensaje || (req.body.data && req.body.data.text ? req.body.data.text : "");
-    const numeroCliente = req.body.telefono || req.body.from || "5491169799220"; 
+    // 🟢 FIX 2: Quitamos el número hardcodeado. Extraemos dinámicamente.
+    const numeroCliente = req.body.telefono || req.body.from || (req.body.data && req.body.data.from); 
     
+    if (!numeroCliente) {
+        console.log("⚠️ [SERVIDOR] Payload recibido sin número de teléfono. Ignorando evento.");
+        return;
+    }
+
     const wozMemberId = req.body.memberId || req.body.member || (req.body.data && req.body.data.member);
 
     console.log(`\n========================================`);
@@ -101,7 +107,6 @@ app.post('/webhook', async (req, res) => {
 
         let resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
         
-        // 🟢 ESCUDO 1: Rescate IA de Marca
         if (resWoker.error === "MARCA_NO_ENCONTRADA") {
             console.log(`⚠️ Marca "${datosAuto.marca}" no hace match exacto. Intentando consultar IA...`);
             try {
@@ -119,7 +124,6 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        // 🟢 ESCUDO 2: Rescate IA de Modelo (Escudo Anti-Tipeo)
         if (resWoker.error === "MODELO_NO_ENCONTRADO") {
             console.log(`⚠️ Modelo "${datosAuto.modelo}" no hace match exacto. Intentando consultar IA...`);
             try {
@@ -128,13 +132,10 @@ app.post('/webhook', async (req, res) => {
                     if (modeloCorregido) {
                         console.log(`🧠 IA corrigió el modelo a: ${modeloCorregido}`);
                         datosAuto.modelo = modeloCorregido;
-                        // Tercer intento de búsqueda en Woker ya con todo limpio
                         resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
                     } else {
                         console.log("⚠️ IA no pudo corregir el modelo de forma segura.");
                     }
-                } else {
-                    console.log("⚠️ [ALERTA] La función corregirModeloIA no existe en tu archivo 2_modulo_ia.js.");
                 }
             } catch (e) {
                 console.error("❌ Error interno al intentar corregir modelo:", e.message);
@@ -143,7 +144,6 @@ app.post('/webhook', async (req, res) => {
 
         const versiones = resWoker.versiones || [];
         
-        // Si falló todo, deriva directo
         if (resWoker.error || versiones.length === 0) {
             console.log("❌ Sin versiones para ese modelo, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos por este chat en breve.");
@@ -229,8 +229,11 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             
             const sumaAsgGeneral = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valorSuma);
 
+            // 🟢 FIX 3: Evaluación estricta y segura del GNC
             let sumaGncVisual = null;
-            if (datosAuto.gnc) {
+            const tieneGnc = (datosAuto.gnc === true || datosAuto.gnc === "true" || datosAuto.gnc === 1 || datosAuto.gnc === "1");
+            
+            if (tieneGnc) {
                 const topeVeintePorciento = valorSuma * 0.20;
                 const gncDefinitivo = Math.min(topeK1, topeVeintePorciento);
                 
@@ -244,6 +247,7 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             if (nombreLogo.includes('sancor')) nombreLogo = 'sancor';
             if (nombreLogo.includes('atm')) nombreLogo = 'atm';
 
+            // 🟢 FIX 3B: Parseo correcto de Emojis a HTML
             const etiquetaTxt = (reglasGondola.etiqueta || "").trim();
             const etiquetaHtml = etiquetaTxt.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
                 const hex = m.codePointAt(0).toString(16);
@@ -268,7 +272,8 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
                     
                     const reglaCob = reglasFiltros[nombreComercial] || reglasFiltros[codigoNumerico];
                     
-                    if (reglaCob) {
+                    // 🟢 FIX 4: Validamos estrictamente que el precio sea mayor a cero
+                    if (reglaCob && cob.premio > 0) {
                         const precioFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cob.premio);
                         let textoDesc = reglaCob.nombreComercial ? reglaCob.nombreComercial.substring(0, 80) : "";
                         
@@ -301,11 +306,13 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
                 fs.mkdirSync('./public');
             }
 
-            fs.writeFileSync('./public/cotizacion_final_test.png', bufferImagen);
-            console.log("\n🎉 ¡ÉXITO TOTAL! Imagen guardada y lista.");
+            // 🟢 FIX 1: Nombre de archivo 100% único para evitar sobreescritura (Condición de Carrera)
+            const nombreArchivoImg = `cotizacion_${ticketId}_${Date.now()}.png`;
+            fs.writeFileSync(`./public/${nombreArchivoImg}`, bufferImagen);
+            console.log(`\n🎉 ¡ÉXITO TOTAL! Imagen ${nombreArchivoImg} guardada y lista.`);
 
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
-            const urlPublicaImg = `${baseUrl}/public/cotizacion_final_test.png`;
+            const urlPublicaImg = `${baseUrl}/public/${nombreArchivoImg}`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.");
