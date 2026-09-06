@@ -164,7 +164,10 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             }
         }
 
-        datosAuto.valorGnc = reglasNegocio.valorGncK1; 
+        // Enviamos a cotizar el valor bruto de la celda K1 (limpiando formato de moneda por las dudas)
+        const topeK1 = Number(reglasNegocio.valorGncK1.toString().replace(/[^0-9]/g, '')) || 1500000;
+        datosAuto.valorGnc = topeK1; 
+
         const wokerData = await moduloWoker.cotizarEnWoker(idWoker, datosAuto);
         
         if (!wokerData || wokerData.error) {
@@ -193,12 +196,11 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             
             const sumaAsgGeneral = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valorSuma);
 
+            // 🟢 MATEMÁTICA EXACTA DEL GNC (Tope K1 vs 20% de Suma Asegurada)
             let sumaGncVisual = null;
-            if (datosAuto.gnc && datosAuto.valorGnc) {
-                // 🟢 FIX 2: Limpiamos los signos raros del GNC para que la matemática no se rompa
-                const gncNumerico = Number(datosAuto.valorGnc.toString().replace(/[^0-9]/g, '')) || 0;
+            if (datosAuto.gnc) {
                 const topeVeintePorciento = valorSuma * 0.20;
-                const gncDefinitivo = Math.min(gncNumerico, topeVeintePorciento);
+                const gncDefinitivo = Math.min(topeK1, topeVeintePorciento);
                 
                 if (gncDefinitivo > 0) {
                     sumaGncVisual = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(gncDefinitivo);
@@ -210,12 +212,13 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             if (nombreLogo.includes('sancor')) nombreLogo = 'sancor';
             if (nombreLogo.includes('atm')) nombreLogo = 'atm';
 
-            // 🟢 FIX 3: Convertimos cualquier emoji del Sheet en imagen de Twemoji
-            const etiquetaOriginal = (reglasGondola.etiqueta || "").trim();
-            const etiquetaHtml = etiquetaOriginal.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
-                return `<img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${m.codePointAt(0).toString(16)}.png" style="width: 13px; height: 13px; vertical-align: text-bottom; margin-right: 4px;">`;
+            // 🟢 TRADUCTOR DE EMOJIS (100% seguro)
+            const etiquetaTxt = (reglasGondola.etiqueta || "").trim();
+            const etiquetaHtml = etiquetaTxt.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
+                const hex = m.codePointAt(0).toString(16);
+                return `<img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${hex}.png" style="width: 14px; height: 14px; vertical-align: text-bottom; margin-right: 4px; display: inline-block;">`;
             });
-            const esOferta = etiquetaOriginal.toLowerCase().includes('oferta');
+            const esOferta = etiquetaTxt.toLowerCase().includes('oferta');
 
             const filaDiseno = {
                 nombre: reglasGondola.nombre,

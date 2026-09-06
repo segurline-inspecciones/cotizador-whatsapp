@@ -4,18 +4,21 @@ const path = require('path');
 
 function getBase64Image(nombreArchivo) {
     try {
-        const fullPath = path.resolve(__dirname, `./img/${nombreArchivo}`);
-        const image = fs.readFileSync(fullPath);
+        // 🟢 FIX 1: Usamos path.join que es 100% a prueba de fallos en Linux/Render
+        const fullPath = path.join(__dirname, 'img', nombreArchivo);
         
-        // 🟢 FIX 1: Detectamos inteligentemente si es PNG o JPG para que el logo se vea
-        const extension = path.extname(nombreArchivo).toLowerCase();
-        let mimeType = 'image/jpeg';
-        if (extension === '.png') {
-            mimeType = 'image/png';
+        if (!fs.existsSync(fullPath)) {
+            console.log(`⚠️ [IMAGEN] No se encontró el archivo en: ${fullPath}`);
+            return '';
         }
+
+        const image = fs.readFileSync(fullPath);
+        const extension = path.extname(nombreArchivo).toLowerCase();
+        let mimeType = extension === '.png' ? 'image/png' : 'image/jpeg';
 
         return `data:${mimeType};base64,${image.toString('base64')}`;
     } catch (e) {
+        console.error(`❌ [IMAGEN] Error leyendo ${nombreArchivo}:`, e.message);
         return ''; 
     }
 }
@@ -30,12 +33,17 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
         <head>
             <meta charset="UTF-8">
             <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800;900&display=swap" rel="stylesheet">
+            <!-- 🟢 FIX 2: Librería oficial de Emojis inyectada -->
+            <script src="https://unpkg.com/twemoji@latest/dist/twemoji.min.js" crossorigin="anonymous"></script>
             <style>
                 :root { --primary: #008679; --mid: #2f6988; --secondary: #545393; --bg-page: #f4f7f9; --text-dark: #1e293b; --text-muted: #64748b; }
                 * { box-sizing: border-box; }
                 body { font-family: 'Nunito', sans-serif; background-color: transparent; display: inline-block; margin: 0; padding: 20px; }
                 #captura { width: 950px; background-color: var(--bg-page); border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
                 
+                /* Estilo automático para todos los emojis que aparezcan */
+                img.emoji { width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; display: inline-block; }
+
                 .header { background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 50%, var(--secondary) 100%); color: white; padding: 30px 40px; display: flex; justify-content: space-between; align-items: center; }
                 
                 .brand-container { background-color: #f8f9fa; padding: 8px 18px; border-radius: 50px; display: inline-flex; align-items: center; margin-bottom: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); }
@@ -83,12 +91,13 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                 .footer { text-align: center; padding: 20px; font-size: 14px; color: var(--text-muted); font-weight: 600; }
             </style>
         </head>
-        <body>
+        <!-- 🟢 FIX 2: Al cargar la vista invisible, traduce los emojis a imágenes -->
+        <body onload="twemoji.parse(document.body)">
             <div id="captura">
                 <div class="header">
                     <div class="header-left">
                         {{#if vehiculo.logoEmpresa}}
-                        <div class="brand-container"><img src="{{vehiculo.logoEmpresa}}"></div>
+                        <div class="brand-container"><img src="{{{vehiculo.logoEmpresa}}}"></div>
                         {{/if}}
                         <h2>Cotización Vehicular</h2>
                         <p>Respondé con el número de la opción que prefieras</p>
@@ -113,13 +122,12 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
                         </thead>
                         <tbody>
                             {{#each companias}}
-                            <tr {{#if this.etiqueta_html}}class="row-recommended"{{/if}}>
+                            <tr {{#if this.etiqueta_txt}}class="row-recommended"{{/if}}>
                                 <td>
                                     <div class="company-cell">
-                                        <!-- 🟢 Emojis y Textos inyectados dinámicamente desde el Sheet -->
-                                        {{#if this.etiqueta_html}}
+                                        {{#if this.etiqueta_txt}}
                                         <span class="badge-dinamica {{#if this.es_oferta}}badge-oferta{{/if}}">
-                                            {{{this.etiqueta_html}}}
+                                            {{this.etiqueta_txt}}
                                         </span>
                                         {{/if}}
                                         
@@ -154,6 +162,7 @@ async function generarImagenCotizacion(datosVehiculo, companias) {
             html: htmlTemplate,
             content: { vehiculo: datosVehiculo, companias: companias },
             transparent: true,
+            waitUntil: 'networkidle0', // 🟢 FIX 3: Obliga a esperar que los emojis se descarguen antes de la foto
             puppeteerArgs: { args: ['--no-sandbox', '--disable-setuid-sandbox'] } 
         });
         
