@@ -7,7 +7,7 @@ const headers = {
     'Content-Type': 'application/json' 
 };
 
-// 1. Busca la marca y pre-filtra las versiones por modelo (CON ESCUDO IA)
+// 1. Busca la marca y pre-filtra las versiones por modelo (CON ESCUDO IA Y LÍMITE EXTENDIDO)
 async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     console.log(`\n🔍 [WOKER] Buscando catálogo para: "${marcaTexto}" "${modeloTexto}" ${anio}...`);
     try {
@@ -21,25 +21,29 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
             return labelNorm === marcaBuscada || labelNorm.includes(marcaBuscada) || marcaBuscada.includes(labelNorm);
         });
 
-        // 🛑 Si no encuentra la marca, devuelve el error y la lista para que la IA la corrija
         if (!marcaObj) {
             console.log(`⚠️ [WOKER] No se encontró la marca "${marcaTexto}". Solicitando rescate a IA...`);
             return { error: 'MARCA_NO_ENCONTRADA', opcionesMarcas: jsonMarcas.data || [], versiones: [] };
         }
 
-        const resVers = await fetch(`${BASE_URL}/catalogos/versiones?rama=1&marca=${marcaObj.id}&anio=${anio}`, { headers });
+        // 🟢 FIX PAGINACIÓN: limit=1000 y per_page=1000 fuerza a que traiga TODO el año entero
+        const resVers = await fetch(`${BASE_URL}/catalogos/versiones?rama=1&marca=${marcaObj.id}&anio=${anio}&limit=1000&per_page=1000`, { headers });
         const jsonVers = await resVers.json();
 
-        const modeloBuscado = (modeloTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
+        const totalDevueltos = jsonVers.data ? jsonVers.data.length : 0;
+        console.log(`📡 [WOKER DEBUG] La API devolvió un total de ${totalDevueltos} versiones crudas para ${marcaObj.label} ${anio}.`);
+
+        // 🟢 FILTRO INTELIGENTE: Busca todas las palabras (ej: "captur" y "2.0") sin importar el orden
+        const terminosBusqueda = (modeloTexto || "").toLowerCase().replace(/\s+/g, ' ').trim().split(' ');
 
         const versionesFiltradas = (jsonVers.data || [])
             .filter(v => {
                 const verLabel = (v.label || "").toLowerCase().replace(/\s+/g, ' ');
-                return verLabel.includes(modeloBuscado);
+                return terminosBusqueda.every(termino => verLabel.includes(termino));
             })
             .map(v => ({ id: v.id, descripcion: v.label }));
 
-        console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones pre-filtradas.`);
+        console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones exactas para "${modeloTexto}".`);
         return { error: null, versiones: versionesFiltradas };
     } catch (error) {
         console.error("❌ [WOKER] Error buscando versiones:", error.message);

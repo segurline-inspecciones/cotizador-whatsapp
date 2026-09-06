@@ -99,9 +99,11 @@ app.post('/webhook', async (req, res) => {
         datosAuto.idProvincia = zona.idProvincia;
         datosAuto.idLocalidad = zona.idLocalidad;
 
-        let resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
+        // 🟢 FIX 1 (TU IDEA): Concatenamos modelo + versión para filtrar perfecto en Woker
+        const modeloConVersion = `${datosAuto.modelo} ${datosAuto.version_buscada || ""}`.trim();
+        let resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, modeloConVersion, datosAuto.anio);
         
-        // 🟢 FIX 1: Blindaje extremo de la IA para la Marca (Evita que el servidor crashee si el archivo 2 no está actualizado)
+        // 🟢 Blindaje extremo de la IA para la Marca
         if (resWoker.error === "MARCA_NO_ENCONTRADA") {
             console.log(`⚠️ Marca "${datosAuto.marca}" no hace match exacto. Intentando consultar IA...`);
             try {
@@ -111,7 +113,7 @@ app.post('/webhook', async (req, res) => {
                     if (marcaCorregida) {
                         console.log(`🧠 IA corrigió la marca a: ${marcaCorregida}`);
                         datosAuto.marca = marcaCorregida;
-                        resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
+                        resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, modeloConVersion, datosAuto.anio);
                     }
                 } else {
                     console.log("⚠️ [ALERTA] La función corregirMarcaIA no existe en tu archivo 2_modulo_ia.js. Saltando rescate de IA.");
@@ -123,7 +125,7 @@ app.post('/webhook', async (req, res) => {
 
         const versiones = resWoker.versiones || [];
         
-        // 🟢 FIX 1B: Si de todas formas no se encontró marca o modelo, deriva prolijamente al humano
+        // Si de todas formas no se encontró marca o modelo, deriva prolijamente al humano
         if (resWoker.error || versiones.length === 0) {
             console.log("❌ Sin versiones para ese modelo (o error de catálogo), derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos por este chat en breve.");
@@ -134,7 +136,7 @@ app.post('/webhook', async (req, res) => {
         const decision = await moduloIA.arbitroDeVersiones(datosAuto.version_buscada, versiones);
         
         if (!decision || !decision.seguro) {
-            // 🟢 FIX 2: Si la IA filtra y devuelve 0 opciones (ej: busca 1.8 y no existe), deriva directo.
+            // Si la IA filtra y devuelve 0 opciones, deriva directo.
             if (!decision || !decision.opciones || decision.opciones.length === 0) {
                 console.log("❌ La IA descartó todas las versiones por falta de coincidencia. Derivando a asesor...");
                 await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos por este chat en breve.");
@@ -173,7 +175,7 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             reglasNegocio = await moduloSheets.cargarReglasDeNegocio();
             if (!reglasNegocio) {
                 console.log("❌ Error fatal: No se pudieron cargar las reglas de Google Sheets.");
-                await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tenemos un problema técnico conectando con los servidores. Te derivo a un asesor para que te ayude manualmente.");
+                await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tenemos un problema técnico conectando con los servidores. Te derivo a un asesor para que te ayude manually.");
                 if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
                 return;
             }
@@ -291,7 +293,7 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.");
             
-            // 🟢 FIX 3: Trazabilidad estricta del encendido de Live Chat
+            // Trazabilidad estricta del encendido de Live Chat
             if (wozMemberId) {
                 console.log(`👨‍💻 Solicitando encendido de Live Chat a Woztell para el MemberID: ${wozMemberId}...`);
                 await moduloWoztell.activarLiveChat(wozMemberId);
