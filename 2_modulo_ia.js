@@ -1,166 +1,133 @@
-const nodeHtmlToImage = require('node-html-to-image');
-const fs = require('fs');
-const path = require('path');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-function getBase64Image(nombreArchivo) {
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+async function extraerDatosVehiculo(textoCliente) {
+    console.log(`\n🧠 [IA] Analizando mensaje del cliente con datos completos...`);
     try {
-        const fullPath = path.join(__dirname, 'img', nombreArchivo);
-        if (!fs.existsSync(fullPath)) return '';
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-flash",
+            generationConfig: { responseMimeType: "application/json" } 
+        });
 
-        const image = fs.readFileSync(fullPath);
-        const extension = path.extname(nombreArchivo).toLowerCase();
-        let mimeType = extension === '.png' ? 'image/png' : 'image/jpeg';
+        const prompt = `
+        Sos un experto en seguros de autos. Extraé los datos del vehículo y conductor en JSON.
+        Reglas:
+        1. Normalizá la marca al nombre OFICIAL COMPLETO (ej: "VW" -> "Volkswagen").
+        2. "gnc": true solo si dice GNC o Gas explícitamente.
+        3. "uso": 1 para Particular, 2 para Comercial (fletes, reparto), 3 para Plataformas (Uber, Cabify, Didi). Si no menciona nada, asume 1.
+        4. Si extraes una fecha de nacimiento, formatea OBLIGATORIAMENTE como "YYYY-MM-DD".
+        5. Si un dato no está en el texto, devolvé null.
+        6. "listo_para_cotizar": true solo si tenemos obligatoriamente: marca, modelo, año y codigo_postal.
         
-        return `data:${mimeType};base64,${image.toString('base64')}`;
-    } catch (e) {
-        return ''; 
-    }
-}
+        Estructura requerida:
+        {
+          "marca": "string",
+          "modelo": "string",
+          "version_buscada": "string",
+          "anio": "number",
+          "gnc": "boolean",
+          "uso": "number",
+          "dni": "string",
+          "fecha_nacimiento": "string",
+          "provincia": "string",
+          "localidad": "string",
+          "codigo_postal": "string",
+          "listo_para_cotizar": "boolean"
+        }
 
-async function generarImagenCotizacion(datosVehiculo, companias) {
-    console.log("\n📸 [IMAGEN] Preparando el HTML y encendiendo la cámara...");
-
-    try {
-        const htmlTemplate = `
-        <!DOCTYPE html>
-        <html lang="es">
-        <head>
-            <meta charset="UTF-8">
-            <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800;900&display=swap" rel="stylesheet">
-            <style>
-                :root { --primary: #008679; --mid: #2f6988; --secondary: #545393; --bg-page: #f4f7f9; --text-dark: #1e293b; --text-muted: #64748b; }
-                * { box-sizing: border-box; }
-                body { font-family: 'Nunito', sans-serif; background-color: transparent; display: inline-block; margin: 0; padding: 20px; }
-                #captura { width: 950px; background-color: var(--bg-page); border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
-                
-                .header { background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 50%, var(--secondary) 100%); color: white; padding: 30px 40px; display: flex; justify-content: space-between; align-items: center; }
-                
-                .brand-container { background-color: #f8f9fa; padding: 8px 18px; border-radius: 50px; display: inline-flex; align-items: center; margin-bottom: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); }
-                .brand-container img { max-height: 40px; max-width: 180px; object-fit: contain; }
-                
-                .header-left h2 { margin: 0; font-size: 24px; font-weight: 900; }
-                .header-left p { margin: 6px 0 0 0; font-size: 15px; font-weight: 600; opacity: 0.9; }
-                .header-right { background: rgba(255, 255, 255, 0.15); padding: 12px 20px; border-radius: 16px; text-align: right; }
-                .header-right h3 { margin: 0; font-size: 18px; color: #fff; font-weight: 900; }
-                .header-right p { margin: 4px 0 0 0; font-size: 13px; font-weight: 600; }
-                
-                .table-container { padding: 10px 30px 30px 30px; }
-                table { width: 100%; border-collapse: separate; border-spacing: 0 16px; text-align: center; }
-                th { color: var(--mid); font-size: 12px; padding: 10px 5px; text-transform: uppercase; font-weight: 900; }
-                
-                tbody tr { background-color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
-                tbody td { padding: 16px 8px; vertical-align: middle; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
-                tbody td:first-child { border-left: 1px solid #e2e8f0; border-top-left-radius: 16px; border-bottom-left-radius: 16px; width: 20%; }
-                tbody td:last-child { border-right: 1px solid #e2e8f0; border-top-right-radius: 16px; border-bottom-right-radius: 16px; }
-                tbody td:nth-child(even) { background-color: rgba(47, 105, 136, 0.04); }
-                
-                .row-recommended { box-shadow: 0 10px 25px rgba(0, 134, 121, 0.15); }
-                .row-recommended td { border-top: 2px solid var(--primary); border-bottom: 2px solid var(--primary); }
-                .row-recommended td:first-child { border-left: 6px solid var(--primary); }
-                .row-recommended td:last-child { border-right: 2px solid var(--primary); }
-
-                .company-cell { position: relative; display: flex; flex-direction: column; align-items: center; padding-top: 12px; }
-                
-                .badge-dinamica { position: absolute; top: -24px; background: linear-gradient(135deg, var(--primary) 0%, var(--mid) 100%); color: white; font-size: 10px; font-weight: 900; padding: 5px 14px; border-radius: 20px; text-transform: uppercase; display: flex; align-items: center; gap: 4px; }
-                .badge-oferta { background: #e11d48; }
-                
-                .logo-box { height: 45px; display: flex; align-items: center; margin-bottom: 8px; }
-                .logo-box img { max-width: 100px; max-height: 100%; object-fit: contain; }
-                
-                .suma-asegurada { background-color: #f1f5f9; color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: 8px; font-weight: 800; }
-                .suma-gnc { background-color: #e0f2fe; color: #0284c7; font-size: 9.5px; padding: 4px 10px; border-radius: 8px; font-weight: 800; margin-top: 5px; box-shadow: inset 0 0 0 1px rgba(2, 132, 199, 0.2); }
-
-                .price-tag { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-                .opt-num { background-color: rgba(47, 105, 136, 0.12); color: var(--mid); border-radius: 6px; font-size: 12px; font-weight: 900; padding: 2px 12px; }
-                .price { font-weight: 900; color: var(--text-dark); font-size: 19px; }
-                
-                .desc { font-size: 8.5px; color: #64748b; font-weight: 800; text-transform: uppercase; max-width: 130px; line-height: 1.3; margin-top: 4px; text-align: center; word-wrap: break-word; }
-                
-                .empty { color: #cbd5e1; font-size: 20px; font-weight: 900; }
-                .footer { text-align: center; padding: 20px; font-size: 14px; color: var(--text-muted); font-weight: 600; }
-            </style>
-        </head>
-        <body>
-            <div id="captura">
-                <div class="header">
-                    <div class="header-left">
-                        {{#if vehiculo.logoEmpresa}}
-                        <div class="brand-container"><img src="{{{vehiculo.logoEmpresa}}}"></div>
-                        {{/if}}
-                        <h2>Cotización Vehicular</h2>
-                        <p>Respondé con el número de la opción que prefieras</p>
-                    </div>
-                    <div class="header-right">
-                        <h3>🚗 {{vehiculo.nombreCompleto}}</h3>
-                        <p>Ref: #{{vehiculo.ticketId}}</p>
-                    </div>
-                </div>
-
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th width="20%">COMPAÑÍA</th>
-                                <th width="16%">RESPONSABILIDAD<br>CIVIL</th>
-                                <th width="16%">TERCEROS<br>BÁSICOS</th>
-                                <th width="16%">TERCEROS<br>COMPLETO FULL</th>
-                                <th width="16%">TODO RIESGO<br>FRANQUICIA BAJA</th>
-                                <th width="16%">TODO RIESGO<br>FRANQUICIA ALTA</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{#each companias}}
-                            <tr {{#if this.etiqueta_html}}class="row-recommended"{{/if}}>
-                                <td>
-                                    <div class="company-cell">
-                                        {{#if this.etiqueta_html}}
-                                        <span class="badge-dinamica {{#if this.es_oferta}}badge-oferta{{/if}}">
-                                            {{{this.etiqueta_html}}}
-                                        </span>
-                                        {{/if}}
-                                        
-                                        <div class="logo-box"><img src="{{this.logoBase64}}"></div>
-                                        <div class="suma-asegurada">Asg: {{this.sumaAsg}}</div>
-                                        {{#if this.sumaGnc}}
-                                        <div class="suma-gnc">GNC: {{this.sumaGnc}}</div>
-                                        {{/if}}
-                                    </div>
-                                </td>
-                                
-                                <td>{{#if this.rc}}<div class="price-tag"><span class="opt-num">{{this.opt_rc}}</span><span class="price">{{this.rc}}</span><div class="desc">{{this.desc_rc}}</div></div>{{else}}<span class="empty">-</span>{{/if}}</td>
-                                <td>{{#if this.tb}}<div class="price-tag"><span class="opt-num">{{this.opt_tb}}</span><span class="price">{{this.tb}}</span><div class="desc">{{this.desc_tb}}</div></div>{{else}}<span class="empty">-</span>{{/if}}</td>
-                                <td>{{#if this.tc}}<div class="price-tag"><span class="opt-num">{{this.opt_tc}}</span><span class="price">{{this.tc}}</span><div class="desc">{{this.desc_tc}}</div></div>{{else}}<span class="empty">-</span>{{/if}}</td>
-                                <td>{{#if this.tr_baja}}<div class="price-tag"><span class="opt-num">{{this.opt_tr_baja}}</span><span class="price">{{this.tr_baja}}</span><div class="desc">{{this.desc_tr_baja}}</div></div>{{else}}<span class="empty">-</span>{{/if}}</td>
-                                <td>{{#if this.tr_alta}}<div class="price-tag"><span class="opt-num">{{this.opt_tr_alta}}</span><span class="price">{{this.tr_alta}}</span><div class="desc">{{this.desc_tr_alta}}</div></div>{{else}}<span class="empty">-</span>{{/if}}</td>
-                            </tr>
-                            {{/each}}
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="footer">
-                    {{{vehiculo.footerDinamico}}}
-                </div>
-            </div>
-        </body>
-        </html>
+        Texto: "${textoCliente}"
         `;
 
-        const bufferImagen = await nodeHtmlToImage({
-            html: htmlTemplate,
-            content: { vehiculo: datosVehiculo, companias: companias },
-            transparent: true,
-            waitUntil: 'networkidle0',
-            puppeteerArgs: { args: ['--no-sandbox', '--disable-setuid-sandbox'] } 
-        });
-        
-        console.log("✅ [IMAGEN] ¡Foto tomada! Imagen generada con éxito.");
-        return bufferImagen;
-
+        const res = await model.generateContent(prompt);
+        const textoLimpio = res.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+        const datos = JSON.parse(textoLimpio);
+        console.log(`✅ [IA] Vehículo: ${datos.marca} ${datos.modelo} ${datos.anio} | Uso: ${datos.uso} | GNC: ${datos.gnc}`);
+        return datos;
     } catch (error) {
-        console.error("❌ [IMAGEN] Error generando la imagen:", error);
+        console.error("❌ [IA] Error en extracción:", error.message);
         return null;
     }
 }
 
-module.exports = { getBase64Image, generarImagenCotizacion };
+async function arbitroDeVersiones(versionBuscada, opcionesWoker) {
+    console.log(`🧠 [IA] Buscando coincidencia exacta para "${versionBuscada}"...`);
+    try {
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-flash",
+            generationConfig: { responseMimeType: "application/json" } 
+        });
+
+        const prompt = `
+        Sos un sistema informático estricto. Compara la versión que busca el cliente con la lista oficial de Woker.
+        Debes devolver ÚNICAMENTE un JSON válido. Las claves deben tener comillas dobles. No agregues texto extra.
+        
+        REGLA 1: Si hay UNA coincidencia obvia y segura, devuelve:
+        {"seguro": true, "id_elegido": "TOKEN_ACA", "descripcion": "NOMBRE_ACA", "opciones": []}
+        
+        REGLA 2: Si hay dudas, es ambiguo (ej: dice "base" y hay 5 versiones) o el modelo tiene múltiples variantes similares, devuelve un top 3 o 4 de las mejores opciones así:
+        {"seguro": false, "id_elegido": null, "descripcion": null, "opciones": [{"id": "...", "descripcion": "..."}, {"id": "...", "descripcion": "..."}]}
+
+        Cliente busca: "${versionBuscada}"
+        Lista oficial: ${JSON.stringify(opcionesWoker)}
+        `;
+
+        const res = await model.generateContent(prompt);
+        const textoLimpio = res.response.text().replace(/```json/g, '').replace(/```/g, '').trim(); 
+        return JSON.parse(textoLimpio);
+    } catch (error) {
+        console.error("❌ [IA] Error en el árbitro al leer el JSON de Gemini:", error.message);
+        return null;
+    }
+}
+
+async function corregirLocalidadIA(localidadEscrita, opcionesWoker) {
+    try {
+        const prompt = `
+        El usuario escribió la localidad: "${localidadEscrita}".
+        Las opciones válidas en la base de datos son: ${JSON.stringify(opcionesWoker)}.
+        
+        Tu tarea: Encuentra la opción válida que mejor coincida con lo que escribió el usuario (corrigiendo errores de tipeo o abreviaciones). 
+        Si hay una coincidencia clara, responde ÚNICAMENTE con el nombre exacto de la opción válida.
+        Si lo que escribió el usuario no tiene nada que ver con ninguna opción, responde exactamente la palabra: null.
+        No des explicaciones, solo el nombre o null.
+        `;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const result = await model.generateContent(prompt);
+        const respuesta = result.response.text().trim();
+        
+        return respuesta === "null" ? null : respuesta;
+    } catch (error) {
+        console.error("❌ Error en IA corrigiendo localidad:", error);
+        return null;
+    }
+}
+
+// 🟢 FUNCIÓN AGREGADA: Rescate inteligente de Marcas
+async function corregirMarcaIA(marcaEscrita, opcionesWoker) {
+    try {
+        const prompt = `
+        El usuario escribió la marca de auto: "${marcaEscrita}".
+        Las opciones válidas en la base de datos son: ${JSON.stringify(opcionesWoker)}.
+        
+        Tu tarea: Encuentra la opción válida que mejor coincida con lo que escribió el usuario (corrigiendo errores de tipeo, o abreviaciones como "VW" para Volkswagen, "MB" para Mercedes Benz o "Chevy" para Chevrolet). 
+        Si hay una coincidencia clara, responde ÚNICAMENTE con el nombre exacto de la opción válida.
+        Si lo que escribió el usuario no tiene nada que ver con ninguna marca de auto, responde exactamente la palabra: null.
+        No des explicaciones, solo el nombre exacto o null.
+        `;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const result = await model.generateContent(prompt);
+        const respuesta = result.response.text().trim();
+        
+        return respuesta === "null" ? null : respuesta;
+    } catch (error) {
+        console.error("❌ Error en IA corrigiendo marca:", error);
+        return null;
+    }
+}
+
+// 🟢 LÍNEA CORREGIDA: Ahora exportamos la función para que server.js la pueda usar
+module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA, corregirMarcaIA };
