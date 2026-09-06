@@ -128,10 +128,13 @@ app.post('/webhook', async (req, res) => {
                     if (modeloCorregido) {
                         console.log(`🧠 IA corrigió el modelo a: ${modeloCorregido}`);
                         datosAuto.modelo = modeloCorregido;
+                        // Tercer intento de búsqueda en Woker ya con todo limpio
                         resWoker = await moduloWoker.obtenerVersionesWoker(datosAuto.marca, datosAuto.modelo, datosAuto.anio);
                     } else {
                         console.log("⚠️ IA no pudo corregir el modelo de forma segura.");
                     }
+                } else {
+                    console.log("⚠️ [ALERTA] La función corregirModeloIA no existe en tu archivo 2_modulo_ia.js.");
                 }
             } catch (e) {
                 console.error("❌ Error interno al intentar corregir modelo:", e.message);
@@ -140,6 +143,7 @@ app.post('/webhook', async (req, res) => {
 
         const versiones = resWoker.versiones || [];
         
+        // Si falló todo, deriva directo
         if (resWoker.error || versiones.length === 0) {
             console.log("❌ Sin versiones para ese modelo, derivando a asesor...");
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Tu vehículo requiere una cotización especial. Un asesor experto de nuestro equipo está buscando el mejor precio y se contactará con vos por este chat en breve.");
@@ -225,11 +229,8 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             
             const sumaAsgGeneral = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valorSuma);
 
-            // 🟢 MATEMÁTICA EXACTA Y SEGURA DEL GNC
             let sumaGncVisual = null;
-            const tieneGnc = datosAuto.gnc === true || datosAuto.gnc === "true" || datosAuto.gnc === 1 || datosAuto.gnc === "1";
-            
-            if (tieneGnc) {
+            if (datosAuto.gnc) {
                 const topeVeintePorciento = valorSuma * 0.20;
                 const gncDefinitivo = Math.min(topeK1, topeVeintePorciento);
                 
@@ -243,14 +244,17 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             if (nombreLogo.includes('sancor')) nombreLogo = 'sancor';
             if (nombreLogo.includes('atm')) nombreLogo = 'atm';
 
-            // 🟢 ETIQUETA UNIFICADA: Usamos "etiqueta_txt" para que conecte con la plantilla HTML de la imagen
             const etiquetaTxt = (reglasGondola.etiqueta || "").trim();
+            const etiquetaHtml = etiquetaTxt.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
+                const hex = m.codePointAt(0).toString(16);
+                return `<img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${hex}.png" style="width: 14px; height: 14px; vertical-align: text-bottom; margin-right: 4px; display: inline-block;">`;
+            });
             const esOferta = etiquetaTxt.toLowerCase().includes('oferta');
 
             const filaDiseno = {
                 nombre: reglasGondola.nombre,
                 orden: reglasGondola.orden,
-                etiqueta_txt: etiquetaTxt, 
+                etiqueta_html: etiquetaHtml, 
                 es_oferta: esOferta,
                 logoBase64: moduloImagen.getBase64Image(`${nombreLogo}.jpg`), 
                 sumaAsg: sumaAsgGeneral,
