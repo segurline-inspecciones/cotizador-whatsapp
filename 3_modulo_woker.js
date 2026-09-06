@@ -1,4 +1,3 @@
-// Usamos process.env para cuando subamos a Render
 const WOKER_API_KEY = process.env.WOKER_API_KEY;
 const BASE_URL = "https://grupoab.woker.ar/api/v1";
 
@@ -7,7 +6,7 @@ const headers = {
     'Content-Type': 'application/json' 
 };
 
-// 1. Busca la marca y pre-filtra las versiones por modelo (CON ESCUDO IA Y LÍMITE EXTENDIDO)
+// 1. Busca la marca y pre-filtra las versiones por modelo (CON LÍMITE EXTENDIDO Y PREPARACIÓN IA)
 async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     console.log(`\n🔍 [WOKER] Buscando catálogo para: "${marcaTexto}" "${modeloTexto}" ${anio}...`);
     try {
@@ -26,24 +25,31 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
             return { error: 'MARCA_NO_ENCONTRADA', opcionesMarcas: jsonMarcas.data || [], versiones: [] };
         }
 
-        // 🟢 FIX PAGINACIÓN: limit=1000 y per_page=1000 fuerza a que traiga TODO el año entero
+        // 🟢 FIX PAGINACIÓN: limit=1000
         const resVers = await fetch(`${BASE_URL}/catalogos/versiones?rama=1&marca=${marcaObj.id}&anio=${anio}&limit=1000&per_page=1000`, { headers });
         const jsonVers = await resVers.json();
 
         const totalDevueltos = jsonVers.data ? jsonVers.data.length : 0;
-        console.log(`📡 [WOKER DEBUG] La API devolvió un total de ${totalDevueltos} versiones crudas para ${marcaObj.label} ${anio}.`);
+        console.log(`📡 [WOKER DEBUG] La API devolvió un total de ${totalDevueltos} versiones crudas.`);
 
-        // 🟢 FILTRO INTELIGENTE: Busca todas las palabras (ej: "captur" y "2.0") sin importar el orden
-        const terminosBusqueda = (modeloTexto || "").toLowerCase().replace(/\s+/g, ' ').trim().split(' ');
+        const modeloBuscado = (modeloTexto || "").toLowerCase().replace(/\s+/g, ' ').trim();
 
         const versionesFiltradas = (jsonVers.data || [])
             .filter(v => {
                 const verLabel = (v.label || "").toLowerCase().replace(/\s+/g, ' ');
-                return terminosBusqueda.every(termino => verLabel.includes(termino));
+                return verLabel.includes(modeloBuscado);
             })
             .map(v => ({ id: v.id, descripcion: v.label }));
 
-        console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones exactas para "${modeloTexto}".`);
+        // 🟢 PREPARACIÓN PARA IA: Si no encuentra el modelo, extrae las palabras clave para ayudar a Gemini
+        if (versionesFiltradas.length === 0) {
+            console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
+            // Extraemos solo la primera palabra de los autos de ese año (ej: "Captur", "Kangoo")
+            const palabrasClave = [...new Set((jsonVers.data || []).map(v => v.label.split(' ')[0]))].filter(Boolean).slice(0, 50);
+            return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: palabrasClave, versiones: [] };
+        }
+
+        console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones pre-filtradas.`);
         return { error: null, versiones: versionesFiltradas };
     } catch (error) {
         console.error("❌ [WOKER] Error buscando versiones:", error.message);
@@ -51,11 +57,9 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     }
 }
 
-// 2. Busca y valida la Provincia + Código Postal + Localidad
 async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
     try {
         let idProv = null;
-
         const resProv = await fetch(`${BASE_URL}/catalogos/provincias`, { headers });
         const catProv = await resProv.json();
         const provObj = catProv.data?.find(p => p.label.toLowerCase().includes(provinciaTexto.toLowerCase().trim()));
@@ -82,7 +86,6 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
     }
 }
 
-// 3. Dispara la cotización oficial
 async function cotizarEnWoker(tokenVersion, datosAuto) {
     console.log(`\n🚀 [WOKER] Disparando cotización oficial...`);
     try {
@@ -116,11 +119,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         };
 
         if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni.toString();
-
-       // 🟢 FIX DE FECHA: Woker exige estrictamente que la clave se llame "fecha_de_nacimiento"
-        if (datosAuto.fecha_nacimiento) {
-            payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
-        }
+        if (datosAuto.fecha_nacimiento) payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
 
         if (datosAuto.gnc && datosAuto.valorGnc) {
             const resAcc = await fetch(`${BASE_URL}/catalogos/accesorios`, { headers });
@@ -138,8 +137,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         const jsonCot = await resCot.json();
 
         if (!resCot.ok || !jsonCot.data || !jsonCot.data.id) {
-            console.log("❌ [WOKER ERROR] La API rechazó la cotización. Respuesta de Woker:");
-            console.log(JSON.stringify(jsonCot, null, 2));
+            console.log("❌ [WOKER ERROR] La API rechazó la cotización.");
             return { error: 'COTIZACION_RECHAZADA' };
         }
 

@@ -105,7 +105,6 @@ async function corregirLocalidadIA(localidadEscrita, opcionesWoker) {
     }
 }
 
-// 🟢 FUNCIÓN AGREGADA: Rescate inteligente de Marcas
 async function corregirMarcaIA(marcaEscrita, opcionesWoker) {
     try {
         const prompt = `
@@ -129,5 +128,28 @@ async function corregirMarcaIA(marcaEscrita, opcionesWoker) {
     }
 }
 
-// 🟢 LÍNEA CORREGIDA: Ahora exportamos la función para que server.js la pueda usar
-module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA, corregirMarcaIA };
+// 🟢 NUEVO ESCUDO IA PARA MODELOS
+async function corregirModeloIA(modeloEscrito, opcionesModelos) {
+    try {
+        const prompt = `
+        El usuario escribió el modelo de auto: "${modeloEscrito}" (puede tener errores como "capture" o "cruzze").
+        Los modelos disponibles para esta marca en la base de datos son: ${JSON.stringify(opcionesModelos)}.
+        
+        Tu tarea: Encuentra la palabra correcta del modelo que mejor coincida con lo que escribió el usuario.
+        Responde ÚNICAMENTE con el nombre exacto del modelo válido (ej: "Captur", "Cruze").
+        Si lo que escribió el usuario no se parece a ninguno de la lista, responde exactamente: null.
+        No des explicaciones, solo el nombre exacto o null.
+        `;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const result = await model.generateContent(prompt);
+        const respuesta = result.response.text().trim();
+        
+        return respuesta === "null" ? null : respuesta;
+    } catch (error) {
+        console.error("❌ Error en IA corrigiendo modelo:", error);
+        return null;
+    }
+}
+
+module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA, corregirMarcaIA, corregirModeloIA };
