@@ -51,8 +51,9 @@ async function extraerDatosVehiculo(textoCliente) {
     }
 }
 
-async function arbitroDeVersiones(versionBuscada, opcionesWoker) {
-    console.log(`🧠 [IA] Buscando coincidencia exacta para "${versionBuscada}"...`);
+// 🟢 FIX: Pasamos datosAuto completo y aplicamos la regla estricta de modelo
+async function arbitroDeVersiones(datosAuto, opcionesWoker) {
+    console.log(`🧠 [IA] Evaluando versiones exactas para "${datosAuto.modelo} ${datosAuto.version_buscada}"...`);
     try {
         const model = genAI.getGenerativeModel({ 
             model: "gemini-2.5-flash",
@@ -60,17 +61,17 @@ async function arbitroDeVersiones(versionBuscada, opcionesWoker) {
         });
 
         const prompt = `
-        Sos un sistema informático estricto. Compara la versión que busca el cliente con la lista oficial de Woker.
+        Sos un sistema informático estricto. Compara el auto que busca el cliente con la lista oficial.
         Debes devolver ÚNICAMENTE un JSON válido. Las claves deben tener comillas dobles. No agregues texto extra.
         
         REGLA 1: Si hay UNA coincidencia obvia y segura, devuelve:
         {"seguro": true, "id_elegido": "TOKEN_ACA", "descripcion": "NOMBRE_ACA", "opciones": []}
         
-        REGLA 2: Si hay dudas, es ambiguo (ej: dice "base" y hay 5 versiones) o el modelo tiene múltiples variantes similares, devuelve un top 3 o 4 de las mejores opciones así:
-        {"seguro": false, "id_elegido": null, "descripcion": null, "opciones": [{"id": "...", "descripcion": "..."}, {"id": "...", "descripcion": "..."}]}
+        REGLA 2: Si hay dudas o múltiples variantes, devuelve TODAS las opciones válidas (hasta un máximo de 15).
+        🚨 REGLA ESTRICTA DE MODELO: El cliente busca EXPRESAMENTE el modelo "${datosAuto.modelo}". Debes DESCARTAR INMEDIATAMENTE cualquier opción de la lista que pertenezca a un modelo distinto con nombre similar (Ejemplo: Si busca "Gol", elimina todo lo que sea "Golf").
 
-        Cliente busca: "${versionBuscada}"
-        Lista oficial: ${JSON.stringify(opcionesWoker)}
+        Cliente busca: Marca "${datosAuto.marca}", Modelo "${datosAuto.modelo}", Versión "${datosAuto.version_buscada}"
+        Lista oficial de Woker: ${JSON.stringify(opcionesWoker)}
         `;
 
         const res = await model.generateContent(prompt);
@@ -128,8 +129,6 @@ async function corregirMarcaIA(marcaEscrita, opcionesWoker) {
     }
 }
 
-// 🟢 NUEVO ESCUDO IA PARA MODELOS
-// 🟢 NUEVO ESCUDO IA PARA MODELOS (Mejorado para leer textos completos)
 async function corregirModeloIA(modeloEscrito, opcionesModelos) {
     try {
         const prompt = `

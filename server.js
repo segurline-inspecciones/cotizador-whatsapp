@@ -151,7 +151,8 @@ app.post('/webhook', async (req, res) => {
             return;
         }
 
-        const decision = await moduloIA.arbitroDeVersiones(datosAuto.version_buscada, versiones);
+        // 🟢 FIX: Pasamos el objeto 'datosAuto' completo a la IA
+        const decision = await moduloIA.arbitroDeVersiones(datosAuto, versiones);
         
         if (!decision || !decision.seguro) {
             if (!decision || !decision.opciones || decision.opciones.length === 0) {
@@ -166,14 +167,15 @@ app.post('/webhook', async (req, res) => {
             let textoOpciones = `Encontré varias versiones para tu *${datosAuto.marca} ${datosAuto.modelo} ${datosAuto.anio}*.\n\nPor favor, indicá la correcta:\n\n`;
             
             let numOp = 1;
-            decision.opciones.slice(0, 6).forEach((op) => {
+            decision.opciones.slice(0, 15).forEach((op) => {
                 textoOpciones += `${numOp}️⃣ *${op.descripcion}*\n\n`;
                 numOp++;
             });
             
             textoOpciones += ` *${numOp}️⃣ 🙋‍♂️ Ninguna de estas. Hablar con asesor.*\n\n👉 *Respondé únicamente con el número* correspondiente.`;
             
-            memoriaBot[numeroCliente] = { estado: "ESPERANDO_VERSION", opciones: decision.opciones.slice(0, 6), datosAuto: datosAuto };
+            // 🟢 FIX: Actualizamos también la memoria a 15 opciones
+            memoriaBot[numeroCliente] = { estado: "ESPERANDO_VERSION", opciones: decision.opciones.slice(0, 15), datosAuto: datosAuto };
             await moduloWoztell.enviarMensajeTexto(numeroCliente, textoOpciones);
             return; 
         }
