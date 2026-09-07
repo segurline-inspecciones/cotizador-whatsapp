@@ -127,7 +127,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
-        // 🟢 FIX FISCAL: Endpoints exactos documentados en la API de Woker
+        // 🟢 Búsqueda de Catálogos Fiscales para Comerciales
         let idCondicionIva = null;
         let idCondicionIibb = null;
 
@@ -151,8 +151,31 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             }
         }
 
+        // 🟢 FIX OBLIGATORIO PARA PLANES: Obtenemos el ID de la Marca en caliente porque Woker lo exige
+        let idMarcaOficial = null;
+        try {
+            const resMarcas = await fetch(`${BASE_URL}/catalogos/marcas?rama=1`, { headers });
+            const catMarcas = await resMarcas.json();
+            const marcaBuscada = normalizarTexto(datosAuto.marca);
+            let mObj = catMarcas.data?.find(m => normalizarTexto(m.label) === marcaBuscada);
+            if (!mObj) {
+                mObj = catMarcas.data?.find(m => {
+                    const labelNorm = normalizarTexto(m.label);
+                    return labelNorm.includes(marcaBuscada) || marcaBuscada.includes(labelNorm);
+                });
+            }
+            if (mObj) idMarcaOficial = mObj.id;
+        } catch (e) {
+            console.log("⚠️ [WOKER] Error rescatando ID de marca para el payload:", e.message);
+        }
+
         const payload = {
-            vehiculo: { version: tokenVersion, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
+            vehiculo: { 
+                marca: idMarcaOficial, // 🟢 FIX: Inyectamos la marca para que la validación pase
+                version: tokenVersion, 
+                anio: parseInt(datosAuto.anio), 
+                uso: idUsoOficial 
+            },
             asegurado: { 
                 apellido: "Lead WhatsApp", 
                 tipo_persona: 1, 
@@ -164,7 +187,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             plan_cotizacion_id: 4
         };
 
-        // 🟢 FIX FISCAL: Claves correctas para el payload (iva, ingresos_brutos)
         if (idCondicionIva) payload.asegurado.iva = idCondicionIva;
         if (idCondicionIibb) payload.asegurado.ingresos_brutos = idCondicionIibb;
 
