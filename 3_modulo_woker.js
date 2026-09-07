@@ -160,7 +160,8 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
                 localidad: datosAuto.idLocalidad, 
                 codigo_postal: datosAuto.codigo_postal.toString() 
             },
-            forma_de_pago: idFormaPago
+            forma_de_pago: idFormaPago,
+            plan_cotizacion_id: 4
         };
 
         // 🟢 FIX FISCAL: Claves correctas para el payload (iva, ingresos_brutos)
