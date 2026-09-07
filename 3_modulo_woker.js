@@ -7,13 +7,11 @@ const headers = {
     'Content-Type': 'application/json' 
 };
 
-// Función auxiliar universal para eliminar tildes y caracteres especiales
 const normalizarTexto = (str) => {
     if (!str) return "";
     return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 };
 
-// 1. Busca la marca y pre-filtra las versiones por modelo
 async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     console.log(`\n🔍 [WOKER] Buscando catálogo para: "${marcaTexto}" "${modeloTexto}" ${anio}...`);
     try {
@@ -22,10 +20,8 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
         
         const marcaBuscada = normalizarTexto(marcaTexto);
 
-        // 🟢 FIX DEFINITIVO: Primero buscamos coincidencia EXACTA
         let marcaObj = jsonMarcas.data?.find(m => normalizarTexto(m.label) === marcaBuscada);
         
-        // Si no hay match exacto, usamos el match parcial
         if (!marcaObj) {
             marcaObj = jsonMarcas.data?.find(m => {
                 const labelNorm = normalizarTexto(m.label);
@@ -38,7 +34,6 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
             return { error: 'MARCA_NO_ENCONTRADA', opcionesMarcas: jsonMarcas.data || [], versiones: [] };
         }
 
-        // Limit=1000 fuerza a que traiga TODO el catálogo de ese año sin ocultar autos
         const resVers = await fetch(`${BASE_URL}/catalogos/versiones?rama=1&marca=${marcaObj.id}&anio=${anio}&limit=1000&per_page=1000`, { headers });
         const jsonVers = await resVers.json();
 
@@ -54,7 +49,6 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
             })
             .map(v => ({ id: v.id, descripcion: v.label }));
 
-        // PREPARACIÓN PARA IA: Si no encuentra el modelo, mandamos una muestra de nombres completos
         if (versionesFiltradas.length === 0) {
             console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
             const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 60);
@@ -69,23 +63,19 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
     }
 }
 
-// 2. Busca y valida la Provincia + Código Postal + Localidad
 async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
     try {
         let idProv = null;
         const resProv = await fetch(`${BASE_URL}/catalogos/provincias`, { headers });
         const catProv = await resProv.json();
         
-        // 🟢 FIX UNIVERSAL: Quitamos tildes a lo que llega de WhatsApp
         let provBuscada = normalizarTexto(provinciaTexto);
         
-        // Mantenemos la excepción para CABA
         if (provBuscada.includes('caba') || provBuscada.includes('autonoma') || provBuscada.includes('capital federal')) {
             provBuscada = 'capital federal';
         }
 
         const provObj = catProv.data?.find(p => {
-            // Quitamos tildes a lo que manda Woker
             const labelNorm = normalizarTexto(p.label);
             return labelNorm.includes(provBuscada) || provBuscada.includes(labelNorm) || 
                    (provBuscada === 'capital federal' && (labelNorm.includes('caba') || labelNorm.includes('capital')));
@@ -104,7 +94,6 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
 
         if (opciones.length === 0) return { valido: false, error: "CP_SIN_LOCALIDADES" };
 
-        // 🟢 FIX UNIVERSAL: También blindamos la Localidad contra tildes (ej: "Morón" vs "Moron")
         const locTextoLimpio = normalizarTexto(localidadTexto);
         const locObj = opciones.find(l => normalizarTexto(l.label) === locTextoLimpio);
 
@@ -118,7 +107,6 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
     }
 }
 
-// 3. Dispara la cotización oficial
 async function cotizarEnWoker(tokenVersion, datosAuto) {
     console.log(`\n🚀 [WOKER] Disparando cotización oficial...`);
     try {
@@ -139,6 +127,26 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
+        // 🟢 NUEVO ESCUDO FISCAL: Buscar IVA e IIBB si es Comercial o Uber
+        let idCondicionIva = null;
+        let idCondicionIibb = null;
+
+        if (datosAuto.uso === 2 || datosAuto.uso === 3) {
+            try {
+                const resIva = await fetch(`${BASE_URL}/catalogos/condiciones-iva`, { headers });
+                const catIva = await resIva.json();
+                const ivaMonotributo = catIva.data?.find(i => normalizarTexto(i.label).includes('monotribut'));
+                if (ivaMonotributo) idCondicionIva = ivaMonotributo.id;
+
+                const resIibb = await fetch(`${BASE_URL}/catalogos/condiciones-iibb`, { headers });
+                const catIibb = await resIibb.json();
+                const iibbConvenio = catIibb.data?.find(i => normalizarTexto(i.label).includes('convenio'));
+                if (iibbConvenio) idCondicionIibb = iibbConvenio.id;
+            } catch (e) {
+                console.log("⚠️ [WOKER] No se pudieron cargar catálogos de IVA/IIBB para comerciales:", e.message);
+            }
+        }
+
         const payload = {
             vehiculo: { version: tokenVersion, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
             asegurado: { 
@@ -150,6 +158,10 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             },
             forma_de_pago: idFormaPago
         };
+
+        // 🟢 INYECCIÓN FISCAL: Agregamos IVA e IIBB solo si se encontraron y es vehículo comercial
+        if (idCondicionIva) payload.asegurado.condicion_iva = idCondicionIva;
+        if (idCondicionIibb) payload.asegurado.condicion_iibb = idCondicionIibb;
 
         if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni.toString();
         if (datosAuto.fecha_nacimiento) payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
@@ -170,7 +182,8 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         const jsonCot = await resCot.json();
 
         if (!resCot.ok || !jsonCot.data || !jsonCot.data.id) {
-            console.log("❌ [WOKER ERROR] La API rechazó la cotización.");
+            console.log(`❌ [WOKER ERROR] Código de estado HTTP: ${resCot.status}`);
+            console.log("❌ [WOKER ERROR] Detalle del rechazo de Woker:", JSON.stringify(jsonCot, null, 2));
             return { error: 'COTIZACION_RECHAZADA' };
         }
 

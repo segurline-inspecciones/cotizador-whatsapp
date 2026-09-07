@@ -26,7 +26,6 @@ app.post('/webhook', async (req, res) => {
     res.status(200).send('EVENT_RECEIVED'); 
 
     const textoCliente = req.body.mensaje || (req.body.data && req.body.data.text ? req.body.data.text : "");
-    // 🟢 FIX 2: Quitamos el número hardcodeado. Extraemos dinámicamente.
     const numeroCliente = req.body.telefono || req.body.from || (req.body.data && req.body.data.from); 
     
     if (!numeroCliente) {
@@ -62,7 +61,8 @@ app.post('/webhook', async (req, res) => {
 
             const datosAuto = sesion.datosAuto;
             delete memoriaBot[numeroCliente]; 
-            return await dispararCotizacion(versionSeleccionada.id, datosAuto, numeroCliente, wozMemberId);
+            // 🟢 MODIFICACIÓN: Pasamos la descripción OFICIAL de la versión al cotizador
+            return await dispararCotizacion(versionSeleccionada.id, versionSeleccionada.descripcion, datosAuto, numeroCliente, wozMemberId);
         }
 
         let datosAuto;
@@ -178,14 +178,16 @@ app.post('/webhook', async (req, res) => {
             return; 
         }
 
-        await dispararCotizacion(decision.id_elegido, datosAuto, numeroCliente, wozMemberId);
+        // 🟢 MODIFICACIÓN: Pasamos la descripción OFICIAL de la versión al cotizador
+        await dispararCotizacion(decision.id_elegido, decision.descripcion, datosAuto, numeroCliente, wozMemberId);
 
     } catch (error) {
         console.error("❌ Error general:", error.message);
     }
 });
 
-async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId) {
+// 🟢 MODIFICACIÓN: La función ahora recibe el nombre oficial de la versión
+async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, numeroCliente, wozMemberId) {
     try {
         if (!reglasNegocio) {
             console.log("⚠️ [SERVIDOR] Reglas no encontradas en memoria. Descargando desde Google Sheets...");
@@ -229,9 +231,9 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             
             const sumaAsgGeneral = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valorSuma);
 
-            // 🟢 FIX 3: Evaluación estricta y segura del GNC
             let sumaGncVisual = null;
-            const tieneGnc = (datosAuto.gnc === true || datosAuto.gnc === "true" || datosAuto.gnc === 1 || datosAuto.gnc === "1");
+            const gncLimpio = String(datosAuto.gnc).toLowerCase();
+            const tieneGnc = (datosAuto.gnc === true || gncLimpio === "true" || datosAuto.gnc === 1 || gncLimpio === "1");
             
             if (tieneGnc) {
                 const topeVeintePorciento = valorSuma * 0.20;
@@ -247,7 +249,6 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
             if (nombreLogo.includes('sancor')) nombreLogo = 'sancor';
             if (nombreLogo.includes('atm')) nombreLogo = 'atm';
 
-            // 🟢 FIX 3B: Parseo correcto de Emojis a HTML
             const etiquetaTxt = (reglasGondola.etiqueta || "").trim();
             const etiquetaHtml = etiquetaTxt.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
                 const hex = m.codePointAt(0).toString(16);
@@ -259,6 +260,7 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
                 nombre: reglasGondola.nombre,
                 orden: reglasGondola.orden,
                 etiqueta_html: etiquetaHtml, 
+                etiqueta_txt: etiquetaTxt, 
                 es_oferta: esOferta,
                 logoBase64: moduloImagen.getBase64Image(`${nombreLogo}.jpg`), 
                 sumaAsg: sumaAsgGeneral,
@@ -272,7 +274,6 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
                     
                     const reglaCob = reglasFiltros[nombreComercial] || reglasFiltros[codigoNumerico];
                     
-                    // 🟢 FIX 4: Validamos estrictamente que el precio sea mayor a cero
                     if (reglaCob && cob.premio > 0) {
                         const precioFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cob.premio);
                         let textoDesc = reglaCob.nombreComercial ? reglaCob.nombreComercial.substring(0, 80) : "";
@@ -292,8 +293,9 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
 
         companiasProcesadas.sort((a, b) => a.orden - b.orden);
 
+        // 🟢 MODIFICACIÓN: Usamos el nombre OFICIAL de Woker en lugar del tipeo manual del cliente
         const vehiculoString = { 
-            nombreCompleto: `${datosAuto.marca} ${datosAuto.modelo} ${datosAuto.anio}`,
+            nombreCompleto: `${datosAuto.marca} ${nombreVersionOficial} ${datosAuto.anio}`,
             ticketId: ticketId,
             logoEmpresa: moduloImagen.getBase64Image('logo.png'), 
             footerDinamico: reglasNegocio.textoFooterN1 
@@ -306,13 +308,12 @@ async function dispararCotizacion(idWoker, datosAuto, numeroCliente, wozMemberId
                 fs.mkdirSync('./public');
             }
 
-            // 🟢 FIX 1: Nombre de archivo 100% único para evitar sobreescritura (Condición de Carrera)
-            const nombreArchivoImg = `cotizacion_${ticketId}_${Date.now()}.png`;
-            fs.writeFileSync(`./public/${nombreArchivoImg}`, bufferImagen);
-            console.log(`\n🎉 ¡ÉXITO TOTAL! Imagen ${nombreArchivoImg} guardada y lista.`);
+            const nombreArchivoUnico = `cotizacion_${ticketId}_${Date.now()}.png`;
+            fs.writeFileSync(`./public/${nombreArchivoUnico}`, bufferImagen);
+            console.log(`\n🎉 ¡ÉXITO TOTAL! Imagen guardada como: ${nombreArchivoUnico}`);
 
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
-            const urlPublicaImg = `${baseUrl}/public/${nombreArchivoImg}`;
+            const urlPublicaImg = `${baseUrl}/public/${nombreArchivoUnico}`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
             await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.");
