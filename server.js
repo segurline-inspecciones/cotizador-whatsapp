@@ -168,11 +168,11 @@ app.post('/webhook', async (req, res) => {
             
             let numOp = 1;
             decision.opciones.slice(0, 15).forEach((op) => {
-                textoOpciones += `${numOp}️⃣ *${op.descripcion}*\n\n`;
+                textoOpciones += `🔹 *${numOp}.* ${op.descripcion}\n\n`;
                 numOp++;
             });
             
-            textoOpciones += ` *${numOp}️⃣ 🙋‍♂️ Ninguna de estas. Hablar con asesor.*\n\n👉 *Respondé únicamente con el número* correspondiente.`;
+            textoOpciones += ` *${numOp}. 🙋‍♂️ *Ninguna de estas. Hablar con asesor.\n\n👉 *Respondé únicamente con el número* correspondiente.`;
             
             // 🟢 FIX: Actualizamos también la memoria a 15 opciones
             memoriaBot[numeroCliente] = { estado: "ESPERANDO_VERSION", opciones: decision.opciones.slice(0, 15), datosAuto: datosAuto };
