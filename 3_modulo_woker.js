@@ -127,21 +127,25 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
-        // 🟢 NUEVO ESCUDO FISCAL: Buscar IVA e IIBB si es Comercial o Uber
+        // 🟢 FIX FISCAL: Endpoints exactos documentados en la API de Woker
         let idCondicionIva = null;
         let idCondicionIibb = null;
 
         if (datosAuto.uso === 2 || datosAuto.uso === 3) {
             try {
-                const resIva = await fetch(`${BASE_URL}/catalogos/condiciones-iva`, { headers });
-                const catIva = await resIva.json();
-                const ivaMonotributo = catIva.data?.find(i => normalizarTexto(i.label).includes('monotribut'));
-                if (ivaMonotributo) idCondicionIva = ivaMonotributo.id;
+                const resIva = await fetch(`${BASE_URL}/catalogos/iva`, { headers });
+                if (resIva.ok) {
+                    const catIva = await resIva.json();
+                    const ivaMonotributo = catIva.data?.find(i => normalizarTexto(i.label).includes('monotribut'));
+                    if (ivaMonotributo) idCondicionIva = ivaMonotributo.id;
+                }
 
-                const resIibb = await fetch(`${BASE_URL}/catalogos/condiciones-iibb`, { headers });
-                const catIibb = await resIibb.json();
-                const iibbConvenio = catIibb.data?.find(i => normalizarTexto(i.label).includes('convenio'));
-                if (iibbConvenio) idCondicionIibb = iibbConvenio.id;
+                const resIibb = await fetch(`${BASE_URL}/catalogos/ingresos-brutos`, { headers });
+                if (resIibb.ok) {
+                    const catIibb = await resIibb.json();
+                    const iibbConvenio = catIibb.data?.find(i => normalizarTexto(i.label).includes('convenio'));
+                    if (iibbConvenio) idCondicionIibb = iibbConvenio.id;
+                }
             } catch (e) {
                 console.log("⚠️ [WOKER] No se pudieron cargar catálogos de IVA/IIBB para comerciales:", e.message);
             }
@@ -159,9 +163,9 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             forma_de_pago: idFormaPago
         };
 
-        // 🟢 INYECCIÓN FISCAL: Agregamos IVA e IIBB solo si se encontraron y es vehículo comercial
-        if (idCondicionIva) payload.asegurado.condicion_iva = idCondicionIva;
-        if (idCondicionIibb) payload.asegurado.condicion_iibb = idCondicionIibb;
+        // 🟢 FIX FISCAL: Claves correctas para el payload (iva, ingresos_brutos)
+        if (idCondicionIva) payload.asegurado.iva = idCondicionIva;
+        if (idCondicionIibb) payload.asegurado.ingresos_brutos = idCondicionIibb;
 
         if (datosAuto.dni) payload.asegurado.dni = datosAuto.dni.toString();
         if (datosAuto.fecha_nacimiento) payload.asegurado.fecha_de_nacimiento = datosAuto.fecha_nacimiento;
