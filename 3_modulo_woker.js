@@ -151,8 +151,24 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             }
         }
 
+        // 🟢 NUEVO: Desencriptamos el Token a CODIA puro en formato TEXTO sin tocar tu lógica
+        let versionDefinitiva = tokenVersion;
+        try {
+            if (tokenVersion && tokenVersion.includes(':')) {
+                const base64Part = tokenVersion.split(':')[0]; 
+                const codiaString = Buffer.from(base64Part, 'base64').toString('utf-8'); 
+                if (!isNaN(parseInt(codiaString))) {
+                    versionDefinitiva = codiaString; 
+                    console.log(`🧠 [WOKER] Token desencriptado exitosamente a CODIA texto: "${versionDefinitiva}"`);
+                }
+            }
+        } catch (e) {
+            console.log("⚠️ [WOKER] Error decodificando token, usando original.");
+        }
+
         const payload = {
-            vehiculo: { version: tokenVersion, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
+            // 🟢 MODIFICADO: Usamos versionDefinitiva (que ahora es el CODIA en texto)
+            vehiculo: { version: versionDefinitiva, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
             asegurado: { 
                 apellido: "Lead WhatsApp", 
                 tipo_persona: 1, 
