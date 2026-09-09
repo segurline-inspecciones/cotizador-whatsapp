@@ -409,7 +409,7 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
             const urlPublicaImg = `${baseUrl}/public/${nombreArchivoUnico}`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
-            await moduloWoztell.enviarMensajeTexto(numeroCliente, `👉 ¡Acá tenés tu cotización n° ${ticketId}! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.`);
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, `👉 ¡Acá tenés tu cotización n° ${ticketId} ! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.`);
             await moduloWoztell.redirigirANodo(numeroCliente, "6a9c3ef059b1b6f9077bec91", "pg2mEajAHFJykPkP");
 
             console.log(`🔄 [SERVIDOR] Entrando en estado ESPERANDO_COBERTURA para el número ${numeroCliente}`);
