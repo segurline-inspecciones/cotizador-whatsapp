@@ -127,7 +127,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
-        // 🟢 FIX FISCAL: Endpoints exactos documentados en la API de Woker
         let idCondicionIva = null;
         let idCondicionIibb = null;
 
@@ -151,7 +150,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             }
         }
 
-        // 🟢 NUEVO: Desencriptamos el Token a CODIA puro en formato TEXTO sin tocar tu lógica
+        // 🟢 EL TRUCO DEL CODIA ESTÁ VIVO: Desencriptamos el Token a CODIA puro en formato TEXTO
         let versionDefinitiva = tokenVersion;
         try {
             if (tokenVersion && tokenVersion.includes(':')) {
@@ -167,7 +166,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         }
 
         const payload = {
-            // 🟢 MODIFICADO: Usamos versionDefinitiva (que ahora es el CODIA en texto)
             vehiculo: { version: versionDefinitiva, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
             asegurado: { 
                 apellido: "Lead WhatsApp", 
@@ -180,7 +178,6 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             plan_cotizacion_id: 4
         };
 
-        // 🟢 FIX FISCAL: Claves correctas para el payload (iva, ingresos_brutos)
         if (idCondicionIva) payload.asegurado.iva = idCondicionIva;
         if (idCondicionIibb) payload.asegurado.ingresos_brutos = idCondicionIibb;
 
@@ -199,8 +196,22 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
 
         console.log("📦 [WOKER DEBUG] Enviando Payload:", JSON.stringify(payload, null, 2));
 
-        const resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
-        const jsonCot = await resCot.json();
+        // 🟢 ESCUDO ANTI-RECHAZO: Usamos "let" y validamos los errores de fields
+        let resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
+        let jsonCot = await resCot.json();
+
+        if (!resCot.ok && jsonCot.fields) {
+            const erroresFields = JSON.stringify(jsonCot.fields).toLowerCase();
+            if (erroresFields.includes('dni') || erroresFields.includes('fecha') || erroresFields.includes('nacimiento')) {
+                console.log(`⚠️ [WOKER] El DNI o la Fecha de Nacimiento tienen formato inválido. Reintentando cotización sin estos datos optativos...`);
+                delete payload.asegurado.dni;
+                delete payload.asegurado.fecha_de_nacimiento;
+                
+                resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
+                jsonCot = await resCot.json();
+                console.log(`✅ [WOKER] Reintento de cotización disparado limpio.`);
+            }
+        }
 
         if (!resCot.ok || !jsonCot.data || !jsonCot.data.id) {
             console.log(`❌ [WOKER ERROR] Código de estado HTTP: ${resCot.status}`);
