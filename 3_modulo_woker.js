@@ -51,7 +51,7 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
 
         if (versionesFiltradas.length === 0) {
             console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
-            const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 150);
+            const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 60);
             return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: muestraVersiones, versiones: [] };
         }
 
@@ -127,6 +127,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             if (usoComercial) idUsoOficial = usoComercial.id;
         }
 
+        // 🟢 FIX FISCAL: Endpoints exactos documentados en la API de Woker
         let idCondicionIva = null;
         let idCondicionIibb = null;
 
@@ -150,8 +151,24 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             }
         }
 
+        // 🟢 NUEVO: Desencriptamos el Token a CODIA puro en formato TEXTO sin tocar tu lógica
+        let versionDefinitiva = tokenVersion;
+        try {
+            if (tokenVersion && tokenVersion.includes(':')) {
+                const base64Part = tokenVersion.split(':')[0]; 
+                const codiaString = Buffer.from(base64Part, 'base64').toString('utf-8'); 
+                if (!isNaN(parseInt(codiaString))) {
+                    versionDefinitiva = codiaString; 
+                    console.log(`🧠 [WOKER] Token desencriptado exitosamente a CODIA texto: "${versionDefinitiva}"`);
+                }
+            }
+        } catch (e) {
+            console.log("⚠️ [WOKER] Error decodificando token, usando original.");
+        }
+
         const payload = {
-            vehiculo: { version: tokenVersion, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
+            // 🟢 MODIFICADO: Usamos versionDefinitiva (que ahora es el CODIA en texto)
+            vehiculo: { version: versionDefinitiva, anio: parseInt(datosAuto.anio), uso: idUsoOficial },
             asegurado: { 
                 apellido: "Lead WhatsApp", 
                 tipo_persona: 1, 
@@ -163,6 +180,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             plan_cotizacion_id: 4
         };
 
+        // 🟢 FIX FISCAL: Claves correctas para el payload (iva, ingresos_brutos)
         if (idCondicionIva) payload.asegurado.iva = idCondicionIva;
         if (idCondicionIibb) payload.asegurado.ingresos_brutos = idCondicionIibb;
 
@@ -181,23 +199,8 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
 
         console.log("📦 [WOKER DEBUG] Enviando Payload:", JSON.stringify(payload, null, 2));
 
-        // 🟢 MODIFICACIÓN: Cambiamos a 'let' para poder reintentar si falla
-        let resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
-        let jsonCot = await resCot.json();
-
-        // 🟢 NUEVO ESCUDO ANTI-RECHAZO: Reintento sin DNI/Fecha si Woker tira error de validación en esos campos
-        if (!resCot.ok && jsonCot.fields) {
-            const erroresFields = JSON.stringify(jsonCot.fields).toLowerCase();
-            if (erroresFields.includes('dni') || erroresFields.includes('fecha') || erroresFields.includes('nacimiento')) {
-                console.log(`⚠️ [WOKER] El DNI o la Fecha de Nacimiento tienen formato inválido. Reintentando cotización sin estos datos optativos...`);
-                delete payload.asegurado.dni;
-                delete payload.asegurado.fecha_de_nacimiento;
-                
-                resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
-                jsonCot = await resCot.json();
-                console.log(`✅ [WOKER] Reintento de cotización disparado limpio.`);
-            }
-        }
+        const resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
+        const jsonCot = await resCot.json();
 
         if (!resCot.ok || !jsonCot.data || !jsonCot.data.id) {
             console.log(`❌ [WOKER ERROR] Código de estado HTTP: ${resCot.status}`);
