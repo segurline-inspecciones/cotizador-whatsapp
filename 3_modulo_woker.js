@@ -51,7 +51,7 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
 
         if (versionesFiltradas.length === 0) {
             console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
-            const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 60);
+            const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 150);
             return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: muestraVersiones, versiones: [] };
         }
 
