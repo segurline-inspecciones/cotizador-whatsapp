@@ -33,6 +33,11 @@ app.post('/webhook', async (req, res) => {
         console.log("⚠️ [SERVIDOR] Payload recibido sin número de teléfono. Ignorando evento.");
         return;
     }
+    // 🛡️ NUEVO ESCUDO: Ignorar el evento fantasma del redireccionamiento
+    if (textoCliente === "SIN_TEXTO" || textoCliente === "") {
+        console.log("🛡️ [SERVIDOR] Evento de sistema o redirección ignorado silenciosamente.");
+        return;
+    }
 
     const wozMemberId = req.body.memberId || req.body.member || (req.body.data && req.body.data.member);
 
