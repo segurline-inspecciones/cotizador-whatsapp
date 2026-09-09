@@ -273,8 +273,26 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
                 comp.coberturas.forEach(cob => {
                     const nombreComercial = (cob.descripcion || cob.nombre || "").trim();
                     const codigoNumerico = (cob.cobertura || "").toString();
+                    const textoFranquicia = (cob.franquicia || "").toString(); // 🟢 Atrapamos el dato oculto
                     
-                    const reglaCob = reglasFiltros[nombreComercial] || reglasFiltros[codigoNumerico];
+                    let reglaCob = null;
+
+                    // 🟢 NUEVO ESCÁNER INTELIGENTE: Busca "TD3", "32", o "TD3 | 2%"
+                    for (const [keySheet, regla] of Object.entries(reglasFiltros)) {
+                        if (keySheet.includes('|')) {
+                            // Separamos el código (TD3) de la franquicia (2%)
+                            const partes = keySheet.split('|').map(p => p.trim());
+                            
+                            // Si el nombre/código coincide, Y la franquicia de Woker incluye el "2%"
+                            if ((nombreComercial === partes[0] || codigoNumerico === partes[0]) && textoFranquicia.includes(partes[1])) {
+                                reglaCob = regla;
+                                break; // Prioridad absoluta: corto la búsqueda y uso esta regla exacta
+                            }
+                        } else if (keySheet === nombreComercial || keySheet === codigoNumerico) {
+                            // Match genérico clásico (ej: "CF"). Se guarda por si no hay uno más específico
+                            if (!reglaCob) reglaCob = regla; 
+                        }
+                    }
                     
                     if (reglaCob && cob.premio > 0) {
                         const precioFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cob.premio);
