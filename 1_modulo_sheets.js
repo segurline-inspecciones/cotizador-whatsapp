@@ -16,9 +16,8 @@ async function cargarReglasDeNegocio() {
         const doc = new GoogleSpreadsheet(DOCUMENT_ID, auth);
         await doc.loadInfo(); 
         
+        // --- 1. GÓNDOLA DE COMPAÑÍAS ---
         const hojaGondola = doc.sheetsByTitle['Gondola_Compañias'];
-        
-        // 🟢 Cargar GNC (K1) y Texto del Pie de Página (N1)
         await hojaGondola.loadCells(['K1', 'N1']);
         
         const celdaK1 = hojaGondola.getCellByA1('K1').value;
@@ -41,6 +40,7 @@ async function cargarReglasDeNegocio() {
             }
         });
 
+        // --- 2. FILTROS DE COBERTURAS ---
         const hojaFiltros = doc.sheetsByTitle['Filtro_Coberturas'];
         const filasFiltros = await hojaFiltros.getRows();
         const reglasCoberturas = {};
@@ -58,8 +58,29 @@ async function cargarReglasDeNegocio() {
             }
         });
 
-        console.log(`✅ Reglas listas. GNC: $${valorGncK1} | Pie de página cargado.`);
-        return { reglasGondola, reglasCoberturas, valorGncK1, textoFooterN1 };
+        // --- 3. 🚀 NUEVO V2: DETALLES DE COBERTURAS ---
+        const hojaDetalles = doc.sheetsByTitle['Detalle_Coberturas'];
+        const filasDetalles = await hojaDetalles.getRows();
+        const detallesCoberturas = {};
+
+        filasDetalles.forEach(fila => {
+            const idCia = fila.get('ID Compañía');
+            const codWoker = fila.get('Código Woker');
+            
+            // Aplicamos tu regla: si está vacío, enviamos el texto de contingencia
+            const textoDetalle = fila.get('Texto WhatsApp (Detalle)') || "Ni bien este disponible un asesor le va a estar enviando su detalle de cobertura.";
+
+            if (idCia && codWoker) {
+                if (!detallesCoberturas[idCia]) detallesCoberturas[idCia] = {};
+                // Armamos el diccionario cruzando Cía + Código
+                detallesCoberturas[idCia][codWoker] = textoDetalle;
+            }
+        });
+
+        console.log(`✅ Reglas listas. GNC: $${valorGncK1} | Detalles V2 cargados en memoria.`);
+        
+        // Exportamos también detallesCoberturas para que el servidor lo use
+        return { reglasGondola, reglasCoberturas, detallesCoberturas, valorGncK1, textoFooterN1 };
 
     } catch (error) {
         console.error("❌ Error leyendo Google Sheets:", error.message);

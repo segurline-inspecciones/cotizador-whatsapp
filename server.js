@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const app = express();
@@ -43,14 +44,74 @@ app.post('/webhook', async (req, res) => {
     }
 
     try {
+        // 🚀 NUEVO V2: Escudo para Detalle de Coberturas (Debe ir primero)
+        if (memoriaBot[numeroCliente] && memoriaBot[numeroCliente].estado === "ESPERANDO_COBERTURA" && !req.body.datos_vehiculo) {
+            const sesion = memoriaBot[numeroCliente];
+            // Aseguramos el Member ID cruzando el fresco con el guardado
+            const memberIdActivo = wozMemberId || sesion.wozMemberId; 
+            let numeroElegido = parseInt(textoCliente.trim());
+
+            // 🧠 Escudo IA de Intención
+            if (isNaN(numeroElegido) || numeroElegido < 1 || numeroElegido > Object.keys(sesion.opciones).length) {
+                if (typeof moduloIA.deducirOpcionCobertura === 'function') {
+                    console.log(`🧠 Consultando IA para deducir número de cobertura de: "${textoCliente}"`);
+                    numeroElegido = await moduloIA.deducirOpcionCobertura(textoCliente, Object.keys(sesion.opciones).length);
+                } else {
+                    numeroElegido = null;
+                }
+            }
+
+            // 🛑 ESCUDO 1: Opción inválida o no entendida (MODO LIVE + CORTAR FLUJO)
+            if (!numeroElegido || !sesion.opciones[numeroElegido]) {
+                console.log(`🙋‍♂️ [SERVIDOR] Opción de cobertura inválida / Derivando a Modo Live.`);
+                await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 ¡Entendido! Para poder asesorarte correctamente y resolver tus dudas, te derivo con un experto de nuestro equipo que se comunicará por acá a la brevedad.");
+                if (memberIdActivo) await moduloWoztell.activarLiveChat(memberIdActivo);
+                delete memoriaBot[numeroCliente];
+                return; // 🔴 NO SE MANDA PLANTILLA NI NADA MÁS
+            }
+
+            const opcionElegida = sesion.opciones[numeroElegido];
+            let textoDetalle = ""; 
+
+            // Buscar texto de detalle en el caché precargado
+            if (reglasNegocio && reglasNegocio.detallesCoberturas &&
+                reglasNegocio.detallesCoberturas[opcionElegida.idCia] &&
+                reglasNegocio.detallesCoberturas[opcionElegida.idCia][opcionElegida.codWoker]) {
+                textoDetalle = reglasNegocio.detallesCoberturas[opcionElegida.idCia][opcionElegida.codWoker];
+            }
+
+            // 🛑 ESCUDO 2: Detalle vacío en Sheets (MODO LIVE + CORTAR FLUJO)
+            if (!textoDetalle || textoDetalle.trim() === "" || textoDetalle === "Ni bien este disponible un asesor le va a estar enviando su detalle de cobertura.") {
+                console.log(`🙋‍♂️ [SERVIDOR] Detalle vacío en Sheets / Derivando a Modo Live.`);
+                await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Ni bien este disponible un asesor le va a estar enviando su detalle de cobertura.");
+                if (memberIdActivo) await moduloWoztell.activarLiveChat(memberIdActivo);
+                delete memoriaBot[numeroCliente];
+                return; // 🔴 NO SE MANDA PLANTILLA NI NADA MÁS
+            }
+
+            // 🟢 FLUJO FELIZ: Todo correcto, enviamos Detalle + Plantilla
+            console.log(`✅ [SERVIDOR] Cliente eligió detalle de la opción ${numeroElegido}. Enviando...`);
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, textoDetalle);
+
+            console.log(`📲 [SERVIDOR] Enviando botonera interactiva de Meta ('seleccion_cobertura')...`);
+            if (typeof moduloWoztell.enviarPlantillaMeta === 'function') {
+                await moduloWoztell.enviarPlantillaMeta(numeroCliente, "seleccion_cobertura");
+            }
+
+            // Retornamos sin borrar memoriaBot para que se quede esperando si eligen "Otro detalle" en Meta
+            return;
+        }
+
+        // --- V1: RESTO DEL CÓDIGO INTACTO ---
         if (memoriaBot[numeroCliente] && memoriaBot[numeroCliente].estado === "ESPERANDO_VERSION" && !req.body.datos_vehiculo) {
             const numeroElegido = parseInt(textoCliente.trim());
             const sesion = memoriaBot[numeroCliente];
+            const memberIdActivo = wozMemberId || sesion.wozMemberId;
 
             if (isNaN(numeroElegido) || numeroElegido < 1 || numeroElegido > sesion.opciones.length) {
                 console.log(`🙋‍♂️ [SERVIDOR] Opción inválida / Derivado a asesor.`);
                 await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Entendido. Un asesor experto se estará poniendo en contacto con vos a la brevedad para realizarte una cotización súper personalizada.");
-                if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
+                if (memberIdActivo) await moduloWoztell.activarLiveChat(memberIdActivo);
                 delete memoriaBot[numeroCliente];
                 return;
             }
@@ -61,7 +122,6 @@ app.post('/webhook', async (req, res) => {
 
             const datosAuto = sesion.datosAuto;
             delete memoriaBot[numeroCliente]; 
-            // 🟢 MODIFICACIÓN: Pasamos la descripción OFICIAL de la versión al cotizador
             return await dispararCotizacion(versionSeleccionada.id, versionSeleccionada.descripcion, datosAuto, numeroCliente, wozMemberId);
         }
 
@@ -151,7 +211,6 @@ app.post('/webhook', async (req, res) => {
             return;
         }
 
-        // 🟢 FIX: Pasamos el objeto 'datosAuto' completo a la IA
         const decision = await moduloIA.arbitroDeVersiones(datosAuto, versiones);
         
         if (!decision || !decision.seguro) {
@@ -174,13 +233,11 @@ app.post('/webhook', async (req, res) => {
             
             textoOpciones += `🙋‍♂️ *${numOp}.* Ninguna de estas. Hablar con asesor.\n\n👉 *Respondé únicamente con el número* correspondiente.`;
             
-            // 🟢 FIX: Actualizamos también la memoria a 15 opciones
-            memoriaBot[numeroCliente] = { estado: "ESPERANDO_VERSION", opciones: decision.opciones.slice(0, 15), datosAuto: datosAuto };
+            memoriaBot[numeroCliente] = { estado: "ESPERANDO_VERSION", opciones: decision.opciones.slice(0, 15), datosAuto: datosAuto, wozMemberId: wozMemberId };
             await moduloWoztell.enviarMensajeTexto(numeroCliente, textoOpciones);
             return; 
         }
 
-        // 🟢 MODIFICACIÓN: Pasamos la descripción OFICIAL de la versión al cotizador
         await dispararCotizacion(decision.id_elegido, decision.descripcion, datosAuto, numeroCliente, wozMemberId);
 
     } catch (error) {
@@ -188,7 +245,6 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-// 🟢 MODIFICACIÓN: La función ahora recibe el nombre oficial de la versión
 async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, numeroCliente, wozMemberId) {
     try {
         if (!reglasNegocio) {
@@ -220,6 +276,7 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
         console.log("🔀 [SERVIDOR] Mapeando precios...");
         let contadorOpcion = 1;
         const companiasProcesadas = [];
+        const mapaCoberturasV2 = {}; 
 
         resultadosWoker.forEach(comp => {
             const idCiaWoker = comp.compania.id.toString();
@@ -273,36 +330,42 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
                 comp.coberturas.forEach(cob => {
                     const nombreComercial = (cob.descripcion || cob.nombre || "").trim();
                     const codigoNumerico = (cob.cobertura || "").toString();
-                    const textoFranquicia = (cob.franquicia || "").toString(); // 🟢 Atrapamos el dato oculto
+                    const textoFranquicia = (cob.franquicia || "").toString(); 
                     
                     let reglaCob = null;
+                    let matchCode = null; 
 
-                    // 🟢 NUEVO ESCÁNER INTELIGENTE: Busca "TD3", "32", o "TD3 | 2%"
                     for (const [keySheet, regla] of Object.entries(reglasFiltros)) {
                         if (keySheet.includes('|')) {
-                            // Separamos el código (TD3) de la franquicia (2%)
                             const partes = keySheet.split('|').map(p => p.trim());
-                            
-                            // Si el nombre/código coincide, Y la franquicia de Woker incluye el "2%"
                             if ((nombreComercial === partes[0] || codigoNumerico === partes[0]) && textoFranquicia.includes(partes[1])) {
                                 reglaCob = regla;
-                                break; // Prioridad absoluta: corto la búsqueda y uso esta regla exacta
+                                matchCode = keySheet;
+                                break; 
                             }
                         } else if (keySheet === nombreComercial || keySheet === codigoNumerico) {
-                            // Match genérico clásico (ej: "CF"). Se guarda por si no hay uno más específico
-                            if (!reglaCob) reglaCob = regla; 
+                            if (!reglaCob) {
+                                reglaCob = regla;
+                                matchCode = keySheet;
+                            } 
                         }
                     }
                     
                     if (reglaCob && cob.premio > 0) {
                         const precioFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cob.premio);
                         let textoDesc = reglaCob.nombreComercial ? reglaCob.nombreComercial.substring(0, 80) : "";
+                        let asignado = false; 
                         
-                        if (reglaCob.columnaHtml === "RESPONSABILIDAD CIVIL" && !filaDiseno.rc) { filaDiseno.rc = precioFormat; filaDiseno.opt_rc = contadorOpcion++; filaDiseno.desc_rc = textoDesc; }
-                        if (reglaCob.columnaHtml === "TERCEROS BÁSICOS" && !filaDiseno.tb) { filaDiseno.tb = precioFormat; filaDiseno.opt_tb = contadorOpcion++; filaDiseno.desc_tb = textoDesc; }
-                        if (reglaCob.columnaHtml === "TERCEROS COMPLETO FULL" && !filaDiseno.tc) { filaDiseno.tc = precioFormat; filaDiseno.opt_tc = contadorOpcion++; filaDiseno.desc_tc = textoDesc; }
-                        if (reglaCob.columnaHtml === "TODO RIESGO FRANQUICIA BAJA" && !filaDiseno.tr_baja) { filaDiseno.tr_baja = precioFormat; filaDiseno.opt_tr_baja = contadorOpcion++; filaDiseno.desc_tr_baja = textoDesc; }
-                        if (reglaCob.columnaHtml === "TODO RIESGO FRANQUICIA ALTA" && !filaDiseno.tr_alta) { filaDiseno.tr_alta = precioFormat; filaDiseno.opt_tr_alta = contadorOpcion++; filaDiseno.desc_tr_alta = textoDesc; }
+                        if (reglaCob.columnaHtml === "RESPONSABILIDAD CIVIL" && !filaDiseno.rc) { filaDiseno.rc = precioFormat; filaDiseno.opt_rc = contadorOpcion; filaDiseno.desc_rc = textoDesc; asignado = true; }
+                        if (reglaCob.columnaHtml === "TERCEROS BÁSICOS" && !filaDiseno.tb) { filaDiseno.tb = precioFormat; filaDiseno.opt_tb = contadorOpcion; filaDiseno.desc_tb = textoDesc; asignado = true; }
+                        if (reglaCob.columnaHtml === "TERCEROS COMPLETO FULL" && !filaDiseno.tc) { filaDiseno.tc = precioFormat; filaDiseno.opt_tc = contadorOpcion; filaDiseno.desc_tc = textoDesc; asignado = true; }
+                        if (reglaCob.columnaHtml === "TODO RIESGO FRANQUICIA BAJA" && !filaDiseno.tr_baja) { filaDiseno.tr_baja = precioFormat; filaDiseno.opt_tr_baja = contadorOpcion; filaDiseno.desc_tr_baja = textoDesc; asignado = true; }
+                        if (reglaCob.columnaHtml === "TODO RIESGO FRANQUICIA ALTA" && !filaDiseno.tr_alta) { filaDiseno.tr_alta = precioFormat; filaDiseno.opt_tr_alta = contadorOpcion; filaDiseno.desc_tr_alta = textoDesc; asignado = true; }
+                        
+                        if (asignado) {
+                            mapaCoberturasV2[contadorOpcion] = { idCia: idCiaWoker, codWoker: matchCode };
+                            contadorOpcion++;
+                        }
                     }
                 });
             }
@@ -313,7 +376,6 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
 
         companiasProcesadas.sort((a, b) => a.orden - b.orden);
 
-        // 🟢 MODIFICACIÓN: Usamos el nombre OFICIAL de Woker en lugar del tipeo manual del cliente
         const vehiculoString = { 
             nombreCompleto: `${datosAuto.marca} ${nombreVersionOficial} ${datosAuto.anio}`,
             ticketId: ticketId,
@@ -330,20 +392,27 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
 
             const nombreArchivoUnico = `cotizacion_${ticketId}_${Date.now()}.png`;
             fs.writeFileSync(`./public/${nombreArchivoUnico}`, bufferImagen);
+            
+            // 🟢 FIX: La foto "estática" solo se guarda si estamos en tu PC local (NO en Render)
+            if (!process.env.RENDER_EXTERNAL_URL) {
+                fs.writeFileSync(`./public/ultima_cotizacion_local.png`, bufferImagen); 
+            }
+
             console.log(`\n🎉 ¡ÉXITO TOTAL! Imagen guardada como: ${nombreArchivoUnico}`);
 
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
             const urlPublicaImg = `${baseUrl}/public/${nombreArchivoUnico}`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
-            await moduloWoztell.enviarMensajeTexto(numeroCliente, `👉 ¡Acá tenés tu cotización n° *${ticketId}* ! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.`);
-            
-            if (wozMemberId) {
-                console.log(`👨‍💻 Solicitando encendido de Live Chat a Woztell para el MemberID: ${wozMemberId}...`);
-                await moduloWoztell.activarLiveChat(wozMemberId);
-            } else {
-                console.log(`⚠️ [ALERTA] No se pudo activar el Live Chat. El wozMemberId llegó vacío o indefinido desde el Flow.`);
-            }
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, `👉 ¡Acá tenés tu cotización n° ${ticketId}! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.`);
+            await moduloWoztell.redirigirANodo(numeroCliente, "6a9c3ef059b1b6f9077bec91", "pg2mEajAHFJykPkP");
+
+            console.log(`🔄 [SERVIDOR] Entrando en estado ESPERANDO_COBERTURA para el número ${numeroCliente}`);
+            memoriaBot[numeroCliente] = {
+                estado: "ESPERANDO_COBERTURA",
+                opciones: mapaCoberturasV2,
+                wozMemberId: wozMemberId
+            };
         }
 
     } catch (error) {

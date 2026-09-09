@@ -51,7 +51,6 @@ async function extraerDatosVehiculo(textoCliente) {
     }
 }
 
-// 🟢 FIX: Pasamos datosAuto completo y aplicamos la regla estricta de modelo
 async function arbitroDeVersiones(datosAuto, opcionesWoker) {
     console.log(`🧠 [IA] Evaluando versiones exactas para "${datosAuto.modelo} ${datosAuto.version_buscada}"...`);
     try {
@@ -153,4 +152,43 @@ async function corregirModeloIA(modeloEscrito, opcionesModelos) {
     }
 }
 
-module.exports = { extraerDatosVehiculo, arbitroDeVersiones, corregirLocalidadIA, corregirMarcaIA, corregirModeloIA };
+// 🚀 NUEVO V2: Escudo de deducción para Detalle de Coberturas
+async function deducirOpcionCobertura(textoCliente, cantidadOpciones) {
+    try {
+        const prompt = `
+        El cliente está visualizando una imagen con una cotización de seguros que tiene ${cantidadOpciones} opciones numeradas (del 1 al ${cantidadOpciones}).
+        El sistema le pidió que envíe el NÚMERO de la opción que le interesa.
+        El cliente, en lugar de poner solo el número, escribió esto: "${textoCliente}".
+        
+        Tu tarea: Deduce qué número de opción eligió el cliente.
+        Responde ÚNICAMENTE con el número elegido (ejemplo: 2).
+        Si el cliente está haciendo preguntas generales, pide hablar con un asesor, habla de opciones que no existen, o es imposible determinar con total seguridad el número del 1 al ${cantidadOpciones}, responde exactamente la palabra: null.
+        No des explicaciones.
+        `;
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const result = await model.generateContent(prompt);
+        const respuesta = result.response.text().trim();
+        
+        if (respuesta === "null") return null;
+        
+        const numero = parseInt(respuesta);
+        // Validamos que sea un número válido dentro del rango ofrecido
+        if (!isNaN(numero) && numero >= 1 && numero <= cantidadOpciones) {
+            return numero;
+        }
+        return null;
+    } catch (error) {
+        console.error("❌ Error en IA deduciendo cobertura:", error);
+        return null;
+    }
+}
+
+module.exports = { 
+    extraerDatosVehiculo, 
+    arbitroDeVersiones, 
+    corregirLocalidadIA, 
+    corregirMarcaIA, 
+    corregirModeloIA,
+    deducirOpcionCobertura 
+};

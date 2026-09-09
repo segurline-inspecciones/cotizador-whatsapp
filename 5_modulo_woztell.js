@@ -89,4 +89,77 @@ async function activarLiveChat(memberId) {
     }
 }
 
-module.exports = { enviarMensajeTexto, enviarImagen, activarLiveChat };
+// 🚀 NUEVO V2: Disparador de Plantilla de Meta Interactiva
+async function enviarPlantillaMeta(numeroDestino, nombrePlantilla) {
+    console.log(`\n📲 [WOZTELL] Enviando plantilla interactiva '${nombrePlantilla}' a ${numeroDestino}...`);
+    const url = `https://bot.api.woztell.com/sendResponses?accessToken=${WOZTELL_TOKEN}`;
+    
+    // Replicamos la estructura exacta de tu Zoho CRM
+    const payload = {
+        channelId: WOZTELL_CHANNEL_ID,
+        recipientId: numeroDestino,
+        response: [
+            { 
+                type: "TEMPLATE", 
+                elementName: nombrePlantilla,
+                languageCode: "es_AR",
+                components: [] // 🟢 El secreto de Zoho: Inicializamos la lista vacía
+            }
+        ]
+    };
+
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        if (data.ok === 1) {
+            console.log("✅ [WOZTELL] ¡Plantilla enviada con éxito!");
+        } else {
+            console.log("❌ [WOZTELL] Error al enviar plantilla:", JSON.stringify(data));
+        }
+        return data;
+    } catch (error) {
+        console.error("❌ [WOZTELL] Falla de conexión al enviar plantilla:", error.message);
+    }
+}
+
+// 🟢 NUEVA FUNCIÓN: Teletransporta al usuario a un nodo específico en Woztell
+async function redirigirANodo(numeroDestino, treeId, nodeId) {
+    console.log(`\n🔀 [WOZTELL] Redirigiendo cliente ${numeroDestino} al nodo ${nodeId}...`);
+    const url = `https://bot.api.woztell.com/redirectMemberToNode?accessToken=${WOZTELL_TOKEN}`;
+
+    const payload = {
+        channelId: WOZTELL_CHANNEL_ID,
+        recipientId: numeroDestino, // Se usa el número de teléfono
+        redirect: {
+            tree: treeId,
+            nodeCompositeId: nodeId,
+            runPreAction: true,
+            sendResponse: false, // 💡 CLAVE: En 'false' para que el nodo no mande textos duplicados[cite: 7]
+            runPostAction: true
+        }
+    };
+
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        if (data.ok === 1) {
+            console.log("✅ [WOZTELL] ¡Cliente redirigido con éxito al nuevo nodo!");
+        } else {
+            console.log("❌ [WOZTELL] Error al redirigir:", JSON.stringify(data));
+        }
+    } catch (error) {
+        console.error("❌ [WOZTELL] Falla de conexión al redirigir:", error.message);
+    }
+}
+
+module.exports = { enviarMensajeTexto, enviarImagen, activarLiveChat, enviarPlantillaMeta, redirigirANodo };
