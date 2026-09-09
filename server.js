@@ -336,7 +336,7 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
             const urlPublicaImg = `${baseUrl}/public/${nombreArchivoUnico}`;
             
             await moduloWoztell.enviarImagen(numeroCliente, urlPublicaImg);
-            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.");
+            await moduloWoztell.enviarMensajeTexto(numeroCliente, "👉 ¡Acá tenés tu cotización n°${ticketId} ! Por favor, escribí únicamente el *NÚMERO* de la cobertura que más te interesó.\n\n De esta manera podemos enviarte el detalle completo de la cobertura y los pasos para contratarla.");
             
             if (wozMemberId) {
                 console.log(`👨‍💻 Solicitando encendido de Live Chat a Woztell para el MemberID: ${wozMemberId}...`);
