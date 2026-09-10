@@ -1,6 +1,7 @@
-const fetch = require('node-fetch'); // Asegurate de tenerlo instalado
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const BASE_URL = "https://grupoab.woker.ar/api/v1";
 const API_KEY = process.env.WOKER_API_KEY || "TU_API_KEY_AQUI"; 
+
 
 async function armarCotizacionWeb(ticketId, reglasNegocio) {
     try {
