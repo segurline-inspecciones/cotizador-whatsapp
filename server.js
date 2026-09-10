@@ -23,6 +23,25 @@ app.get('/actualizar-reglas', async (req, res) => {
     res.send('✅ Reglas actualizadas desde Google Sheets exitosamente.');
 });
 
+// nuevo bloque conecta con 6_modulo_web.js
+const moduloWeb = require('./6_modulo_web');
+const cors = require('cors'); // Ejecutá: npm install cors
+
+app.use(cors()); // Permite que la web consulte al servidor sin ser bloqueada // luego ponerler app.use(cors({ origin: 'http://segurline.com.ar' }));
+
+app.get('/api/web/:ticket', async (req, res) => {
+    const ticketId = req.params.ticket;
+    
+    if (!reglasNegocio) reglasNegocio = await moduloSheets.cargarReglasDeNegocio(); // Recuperamos caché de Google Sheets
+    
+    const datosWeb = await moduloWeb.armarCotizacionWeb(ticketId, reglasNegocio);
+    
+    if (datosWeb.error) return res.status(404).json({ success: false, message: datosWeb.error });
+    res.json(datosWeb);
+});
+
+
+
 app.post('/webhook', async (req, res) => {
     res.status(200).send('EVENT_RECEIVED'); 
 
