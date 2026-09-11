@@ -92,15 +92,24 @@ async function obtenerIdZona(provinciaTexto, cp, localidadTexto) {
         const catLoc = await resLoc.json();
         const opciones = catLoc.data || [];
 
-        if (opciones.length === 0) return { valido: false, error: "CP_SIN_LOCALIDADES" };
+        // 🟢 NIVEL 3: CP no existe en esta provincia (Se deriva a asesor)
+        if (opciones.length === 0) {
+            console.log(`❌ [WOKER] El CP ${cp} no corresponde a la provincia seleccionada.`);
+            return { valido: false, error: "CP_SIN_LOCALIDADES" };
+        }
 
         const locTextoLimpio = normalizarTexto(localidadTexto);
         const locObj = opciones.find(l => normalizarTexto(l.label) === locTextoLimpio);
 
+        // 🟢 NIVEL 1: Match perfecto
         if (locObj) {
+            console.log(`✅ [WOKER] Localidad matcheada exacto: ${locObj.label}`);
             return { valido: true, idProvincia: idProv, idLocalidad: locObj.id };
         } else {
-            return { valido: false, error: "LOCALIDAD_INCORRECTA", idProvincia: idProv, opciones: opciones };
+            // 🟢 NIVEL 2: Fallback tolerante. Usamos la primera localidad de ese CP
+            const locFallback = opciones[0];
+            console.log(`⚠️ [WOKER] Localidad ambigua ("${localidadTexto}"). Aplicando Fallback por CP ${cp}: Usando "${locFallback.label}"`);
+            return { valido: true, idProvincia: idProv, idLocalidad: locFallback.id };
         }
     } catch (e) {
         return { valido: false, error: "ERROR_API" };
