@@ -375,8 +375,8 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
                         }
                     }
                     
-                    if (reglaCob && cob.premio > 0) {
-                        const precioFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cob.premio);
+                    if (reglaCob && cob.importe_primera_cuota > 0) {
+                        const precioFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cob.importe_primera_cuota);
                         let textoDesc = reglaCob.nombreComercial ? reglaCob.nombreComercial.substring(0, 80) : "";
                         let asignado = false; 
                         
