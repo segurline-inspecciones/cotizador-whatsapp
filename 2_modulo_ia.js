@@ -7,7 +7,7 @@ async function extraerDatosVehiculo(textoCliente) {
     console.log(`\n🧠 [IA] Analizando mensaje del cliente con datos completos...`);
     try {
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-pro",
             generationConfig: { responseMimeType: "application/json" } 
         });
 
@@ -55,7 +55,7 @@ async function arbitroDeVersiones(datosAuto, opcionesWoker) {
     console.log(`🧠 [IA] Evaluando versiones exactas para "${datosAuto.modelo} ${datosAuto.version_buscada}"...`);
     try {
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash",
+            model: "gemini-2.5-pro",
             generationConfig: { responseMimeType: "application/json" } 
         });
 
@@ -94,7 +94,7 @@ async function corregirLocalidadIA(localidadEscrita, opcionesWoker) {
         No des explicaciones, solo el nombre o null.
         `;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" }); 
         const result = await model.generateContent(prompt);
         const respuesta = result.response.text().trim();
         
@@ -117,7 +117,7 @@ async function corregirMarcaIA(marcaEscrita, opcionesWoker) {
         No des explicaciones, solo el nombre exacto o null.
         `;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" }); 
         const result = await model.generateContent(prompt);
         const respuesta = result.response.text().trim();
         
@@ -141,7 +141,7 @@ async function corregirModeloIA(modeloEscrito, opcionesModelos) {
         Si lo que escribió el usuario no tiene ninguna relación con los autos de la lista, responde exactamente: null.
         `;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" }); 
         const result = await model.generateContent(prompt);
         const respuesta = result.response.text().trim();
         
@@ -166,7 +166,7 @@ async function deducirOpcionCobertura(textoCliente, cantidadOpciones) {
         No des explicaciones.
         `;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" }); 
         const result = await model.generateContent(prompt);
         const respuesta = result.response.text().trim();
         
