@@ -249,4 +249,22 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
     }
 }
 
-module.exports = { obtenerVersionesWoker, obtenerIdZona, cotizarEnWoker };
+// NUEVO: Buscar resultados de un ticket existente para la app interna
+async function obtenerCotizacionPorId(ticketId) {
+    try {
+        const resRes = await fetch(`${BASE_URL}/cotizaciones/${ticketId}/resultados`, { headers });
+        const jsonRes = await resRes.json();
+        
+   
+
+        return {
+            detalle: jsonRes.data, 
+            cotizaciones: jsonRes.data?.cotizaciones || []
+        };
+    } catch (error) {
+        console.error("❌ Error:", error.message);
+        return null;
+    }
+}
+
+module.exports = { obtenerVersionesWoker, obtenerIdZona, cotizarEnWoker, obtenerCotizacionPorId };

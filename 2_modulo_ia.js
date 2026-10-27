@@ -202,11 +202,54 @@ async function deducirOpcionCobertura(textoCliente, cantidadOpciones) {
     }
 }
 
+// 🚀 NUEVO: Escudo de deducción para Selección de Versiones de Vehículos
+async function deducirOpcionVersion(textoCliente, opciones) {
+    try {
+        const cantidad = opciones.length;
+        // Preparamos la lista para que la IA sepa qué opciones está viendo el cliente
+        const listaOpciones = opciones.map((op, i) => `${i + 1}. ${op.descripcion}`).join('\n');
+        
+        const prompt = `
+        El cliente está visualizando una lista de ${cantidad} versiones de vehículos numeradas.
+        La lista que ve el cliente es:
+        ${listaOpciones}
+        
+        El sistema le pidió que envíe el NÚMERO de la opción que corresponde a su auto.
+        El cliente, en lugar de poner solo el número, escribió esto: "${textoCliente}".
+        
+        Tu tarea: Deduce qué número de opción eligió el cliente (del 1 al ${cantidad}).
+        Responde ÚNICAMENTE con el número elegido (ejemplo: 2).
+        Si es imposible determinar con total seguridad a cuál de las opciones se refiere, o si habla de algo que no está en la lista, responde exactamente la palabra: null.
+        No des explicaciones.
+        `;
+
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-3.5-flash",
+            generationConfig: { temperature: 0 } 
+        }); 
+        const result = await model.generateContent(prompt);
+        const respuesta = result.response.text().trim();
+        
+        if (respuesta === "null") return null;
+        
+        const numero = parseInt(respuesta);
+        // Validamos que sea un número válido dentro del rango ofrecido
+        if (!isNaN(numero) && numero >= 1 && numero <= cantidad) {
+            return numero;
+        }
+        return null;
+    } catch (error) {
+        console.error("❌ Error en IA deduciendo versión de auto:", error);
+        return null;
+    }
+}
+
 module.exports = { 
     extraerDatosVehiculo, 
     arbitroDeVersiones, 
     corregirLocalidadIA, 
     corregirMarcaIA, 
     corregirModeloIA,
-    deducirOpcionCobertura 
+    deducirOpcionCobertura,
+    deducirOpcionVersion
 };

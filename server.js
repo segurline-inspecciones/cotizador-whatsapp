@@ -41,6 +41,135 @@ app.get('/api/web/:ticket', async (req, res) => {
 });
 
 
+// 🟢 NUEVO ENDPOINT INTERNO: Generador de imagen por URL
+app.get('/api/imagen/:ticket', async (req, res) => {
+    const ticketId = req.params.ticket;
+    console.log(`\n📸 [INTERNO] Solicitud de imagen directa para ticket #${ticketId}`);
+
+    try {
+        if (!reglasNegocio) reglasNegocio = await moduloSheets.cargarReglasDeNegocio();
+
+        // 1. Buscar los datos del ticket en Woker
+        const wokerData = await moduloWoker.obtenerCotizacionPorId(ticketId);
+        if (!wokerData || !wokerData.cotizaciones || wokerData.cotizaciones.length === 0) {
+            return res.status(404).send('❌ No se encontraron resultados para ese número de cotización.');
+        }
+
+        // 2. Búsqueda inteligente del vehículo (Preparado para la actualización de Woker)
+        const v = wokerData.detalle?.vehiculo;
+        let nombreAuto = (v && (v.version_descripcion || v.descripcion || v.nombre)) 
+                      || wokerData.detalle?.descripcion_vehiculo;
+
+        // Si Woker aún no devuelve el auto, aplicamos el Plan B: Fecha y Hora
+        if (!nombreAuto) {
+            const fechaActual = new Date().toLocaleString('es-AR', {
+                timeZone: 'America/Argentina/Buenos_Aires',
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+            nombreAuto = `Fecha de cotización: ${fechaActual}`;
+        }
+
+        // 3. Mapear los precios usando tus reglas de Sheets (Igual que en el Webhook)
+        let contadorOpcion = 1;
+        const companiasProcesadas = [];
+
+        wokerData.cotizaciones.forEach(comp => {
+            const idCiaWoker = comp.compania.id.toString();
+            const reglasGondola = reglasNegocio.reglasGondola[idCiaWoker];
+            const reglasFiltros = reglasNegocio.reglasCoberturas[idCiaWoker];
+
+            if (!reglasGondola || !reglasFiltros) return;
+
+            let valorSuma = comp.suma_asegurada || (comp.coberturas[0] ? comp.coberturas[0].suma_asegurada : 0);
+            if (!valorSuma || valorSuma === 0) valorSuma = 6500000;
+            const sumaAsgGeneral = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(valorSuma);
+
+            let nombreLogo = reglasGondola.nombre.toLowerCase().replace(/ /g, '-');
+            if (nombreLogo.includes('mercantil')) nombreLogo = 'mercantil'; 
+            if (nombreLogo.includes('sancor')) nombreLogo = 'sancor';
+            if (nombreLogo.includes('atm')) nombreLogo = 'atm';
+
+            const etiquetaTxt = (reglasGondola.etiqueta || "").trim();
+            const etiquetaHtml = etiquetaTxt.replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, (m) => {
+                const hex = m.codePointAt(0).toString(16);
+                return `<img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${hex}.png" style="width: 14px; height: 14px; vertical-align: text-bottom; margin-right: 4px; display: inline-block;">`;
+            });
+
+            const filaDiseno = {
+                nombre: reglasGondola.nombre,
+                orden: reglasGondola.orden,
+                etiqueta_html: etiquetaHtml, 
+                es_oferta: etiquetaTxt.toLowerCase().includes('oferta'),
+                logoBase64: moduloImagen.getBase64Image(`${nombreLogo}.jpg`), 
+                sumaAsg: sumaAsgGeneral,
+                sumaGnc: null // Para la vista interna lo omitimos o puedes adaptarlo
+            };
+
+            if (comp.coberturas) {
+                comp.coberturas.forEach(cob => {
+                    const nombreComercial = (cob.descripcion || cob.nombre || "").trim();
+                    const codigoNumerico = (cob.cobertura || "").toString();
+                    const textoFranquicia = (cob.franquicia || "").toString(); 
+                    
+                    let reglaCob = null;
+
+                    for (const [keySheet, regla] of Object.entries(reglasFiltros)) {
+                        if (keySheet.includes('|')) {
+                            const partes = keySheet.split('|').map(p => p.trim());
+                            if ((nombreComercial === partes[0] || codigoNumerico === partes[0]) && textoFranquicia.includes(partes[1])) {
+                                reglaCob = regla; break; 
+                            }
+                        } else if (keySheet === nombreComercial || keySheet === codigoNumerico) {
+                            if (!reglaCob) reglaCob = regla;
+                        }
+                    }
+                    
+                    if (reglaCob && cob.importe_primera_cuota > 0) {
+                        const precioFormat = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(cob.importe_primera_cuota);
+                        let textoDesc = reglaCob.nombreComercial ? reglaCob.nombreComercial.substring(0, 80) : "";
+                        
+                        if (reglaCob.columnaHtml === "RESPONSABILIDAD CIVIL" && !filaDiseno.rc) { filaDiseno.rc = precioFormat; filaDiseno.opt_rc = contadorOpcion++; filaDiseno.desc_rc = textoDesc; }
+                        else if (reglaCob.columnaHtml === "TERCEROS BÁSICOS" && !filaDiseno.tb) { filaDiseno.tb = precioFormat; filaDiseno.opt_tb = contadorOpcion++; filaDiseno.desc_tb = textoDesc; }
+                        else if (reglaCob.columnaHtml === "TERCEROS COMPLETO FULL" && !filaDiseno.tc) { filaDiseno.tc = precioFormat; filaDiseno.opt_tc = contadorOpcion++; filaDiseno.desc_tc = textoDesc; }
+                        else if (reglaCob.columnaHtml === "TODO RIESGO FRANQUICIA BAJA" && !filaDiseno.tr_baja) { filaDiseno.tr_baja = precioFormat; filaDiseno.opt_tr_baja = contadorOpcion++; filaDiseno.desc_tr_baja = textoDesc; }
+                        else if (reglaCob.columnaHtml === "TODO RIESGO FRANQUICIA ALTA" && !filaDiseno.tr_alta) { filaDiseno.tr_alta = precioFormat; filaDiseno.opt_tr_alta = contadorOpcion++; filaDiseno.desc_tr_alta = textoDesc; }
+                    }
+                });
+            }
+
+            if (filaDiseno.rc || filaDiseno.tb || filaDiseno.tc || filaDiseno.tr_baja || filaDiseno.tr_alta) {
+                companiasProcesadas.push(filaDiseno);
+            }
+        });
+
+        companiasProcesadas.sort((a, b) => a.orden - b.orden);
+
+        // 4. Armar el objeto y encender la cámara
+        const vehiculoString = { 
+            nombreCompleto: nombreAuto,
+            ticketId: ticketId,
+            logoEmpresa: moduloImagen.getBase64Image('logo.png'), 
+            footerDinamico: reglasNegocio.textoFooterN1 
+        };
+        
+        const bufferImagen = await moduloImagen.generarImagenCotizacion(vehiculoString, companiasProcesadas);
+
+        // 5. Devolver la imagen cruda directamente al navegador
+        if (bufferImagen) {
+            res.set('Content-Type', 'image/png');
+            res.send(bufferImagen);
+        } else {
+            res.status(500).send('❌ Error interno al generar la imagen fotográfica.');
+        }
+
+    } catch (error) {
+        console.error("❌ Error en API Imagen:", error.message);
+        res.status(500).send('❌ Error fatal en el servidor.');
+    }
+});
+
+
 
 app.post('/webhook', async (req, res) => {
     res.status(200).send('EVENT_RECEIVED'); 
@@ -128,12 +257,23 @@ app.post('/webhook', async (req, res) => {
 
         // --- V1: RESTO DEL CÓDIGO INTACTO ---
         if (memoriaBot[numeroCliente] && memoriaBot[numeroCliente].estado === "ESPERANDO_VERSION" && !req.body.datos_vehiculo) {
-            const numeroElegido = parseInt(textoCliente.trim());
+            let numeroElegido = parseInt(textoCliente.trim());
             const sesion = memoriaBot[numeroCliente];
             const memberIdActivo = wozMemberId || sesion.wozMemberId;
 
+            // 🧠 NUEVO: Escudo IA de Intención para Versiones de Autos
             if (isNaN(numeroElegido) || numeroElegido < 1 || numeroElegido > sesion.opciones.length) {
-                console.log(`🙋‍♂️ [SERVIDOR] Opción inválida / Derivado a asesor.`);
+                if (typeof moduloIA.deducirOpcionVersion === 'function') {
+                    console.log(`🧠 Consultando IA para deducir número de versión de auto de: "${textoCliente}"`);
+                    numeroElegido = await moduloIA.deducirOpcionVersion(textoCliente, sesion.opciones);
+                } else {
+                    numeroElegido = null;
+                }
+            }
+
+            // 🛑 ESCUDO FINAL: Si ni la IA pudo deducirlo, derivamos a asesor
+            if (!numeroElegido || isNaN(numeroElegido) || numeroElegido < 1 || numeroElegido > sesion.opciones.length) {
+                console.log(`🙋‍♂️ [SERVIDOR] Opción inválida de versión / Derivado a asesor.`);
                 await moduloWoztell.enviarMensajeTexto(numeroCliente, "👨‍💻 Entendido. Un asesor experto se estará poniendo en contacto con vos a la brevedad para realizarte una cotización súper personalizada.");
                 if (memberIdActivo) await moduloWoztell.activarLiveChat(memberIdActivo);
                 delete memoriaBot[numeroCliente];
