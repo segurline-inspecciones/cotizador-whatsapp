@@ -55,20 +55,9 @@ app.get('/api/imagen/:ticket', async (req, res) => {
             return res.status(404).send('❌ No se encontraron resultados para ese número de cotización.');
         }
 
-        // 2. Búsqueda inteligente del vehículo (Preparado para la actualización de Woker)
-        const v = wokerData.detalle?.vehiculo;
-        let nombreAuto = (v && (v.version_descripcion || v.descripcion || v.nombre)) 
-                      || wokerData.detalle?.descripcion_vehiculo;
-
-        // Si Woker aún no devuelve el auto, aplicamos el Plan B: Fecha y Hora
-        if (!nombreAuto) {
-            const fechaActual = new Date().toLocaleString('es-AR', {
-                timeZone: 'America/Argentina/Buenos_Aires',
-                day: '2-digit', month: '2-digit', year: 'numeric',
-                hour: '2-digit', minute: '2-digit'
-            });
-            nombreAuto = `Fecha de cotización: ${fechaActual}`;
-        }
+        
+       // 2. Rescatar el nombre exacto del vehículo desde la API de Woker
+        const nombreAuto = wokerData.detalle?.vehiculo?.detalle || `Vehículo Ref. #${ticketId}`;
 
         // 3. Mapear los precios usando tus reglas de Sheets (Igual que en el Webhook)
         let contadorOpcion = 1;
