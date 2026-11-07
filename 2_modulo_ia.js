@@ -65,23 +65,56 @@ async function arbitroDeVersiones(datosAuto, opcionesWoker) {
             } 
         });
 
+        // 🛡️ GUARDIÁN 1: Le enviamos solo índice y descripción (ocultamos el ID Base64 a la IA)
+        const catalogoIndexado = opcionesWoker.map((op, index) => ({
+            idx: index,
+            descripcion: op.descripcion
+        }));
+
         const prompt = `
-        Sos un sistema informático estricto. Compara el auto que busca el cliente con la lista oficial.
+        Sos un sistema informático estricto. Compara el auto que busca el cliente con la lista oficial indexada.
         Debes devolver ÚNICAMENTE un JSON válido. Las claves deben tener comillas dobles. No agregues texto extra.
         
         REGLA 1: Si hay UNA coincidencia obvia y segura, devuelve:
-        {"seguro": true, "id_elegido": "TOKEN_ACA", "descripcion": "NOMBRE_ACA", "opciones": []}
+        {"seguro": true, "idx_elegido": NUMERO_IDX, "indices_opciones": []}
         
-        REGLA 2: Si hay dudas o múltiples variantes, devuelve TODAS las opciones válidas (hasta un máximo de 15).
+        REGLA 2: Si hay dudas o múltiples variantes, devuelve los índices de TODAS las opciones válidas (hasta un máximo de 15):
+        {"seguro": false, "idx_elegido": null, "indices_opciones": [NUMERO_IDX_1, NUMERO_IDX_2]}
+        
         🚨 REGLA ESTRICTA DE MODELO: El cliente busca EXPRESAMENTE el modelo "${datosAuto.modelo}". Debes DESCARTAR INMEDIATAMENTE cualquier opción de la lista que pertenezca a un modelo distinto con nombre similar (Ejemplo: Si busca "Gol", elimina todo lo que sea "Golf").
 
         Cliente busca: Marca "${datosAuto.marca}", Modelo "${datosAuto.modelo}", Versión "${datosAuto.version_buscada}"
-        Lista oficial de Woker: ${JSON.stringify(opcionesWoker)}
+        Lista oficial de Woker: ${JSON.stringify(catalogoIndexado)}
         `;
 
         const res = await model.generateContent(prompt);
         const textoLimpio = res.response.text().replace(/```json/g, '').replace(/```/g, '').trim(); 
-        return JSON.parse(textoLimpio);
+        const parsed = JSON.parse(textoLimpio);
+
+        // Reconstruimos la respuesta con los objetos ORIGINALES INTACTOS de Woker
+        if (parsed.seguro && parsed.idx_elegido !== null && opcionesWoker[parsed.idx_elegido]) {
+            const elegido = opcionesWoker[parsed.idx_elegido];
+            return {
+                seguro: true,
+                id_elegido: elegido.id,
+                descripcion: elegido.descripcion,
+                opciones: []
+            };
+        } else if (Array.isArray(parsed.indices_opciones)) {
+            const opcionesLimpias = parsed.indices_opciones
+                .map(idx => opcionesWoker[idx])
+                .filter(Boolean)
+                .slice(0, 15);
+
+            return {
+                seguro: false,
+                id_elegido: null,
+                descripcion: null,
+                opciones: opcionesLimpias
+            };
+        }
+
+        return null;
     } catch (error) {
         console.error("❌ [IA] Error en el árbitro al leer el JSON de Gemini:", error.message);
         return null;

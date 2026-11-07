@@ -52,11 +52,11 @@ async function obtenerVersionesWoker(marcaTexto, modeloTexto, anio) {
         if (versionesFiltradas.length === 0) {
             console.log(`⚠️ [WOKER] Modelo "${modeloTexto}" no encontrado. Solicitando rescate de modelo a IA...`);
             const muestraVersiones = [...new Set((jsonVers.data || []).map(v => v.label))].slice(0, 150);
-            return { error: 'MODELO_NO_ENCONTRADO', opcionesModelos: muestraVersiones, versiones: [] };
+            return { error: 'MODELO_NO_ENCONTRADO', idMarca: marcaObj.id, opcionesModelos: muestraVersiones, versiones: [] };
         }
 
         console.log(`✅ [WOKER] Se encontraron ${versionesFiltradas.length} versiones pre-filtradas para "${modeloBuscado}".`);
-        return { error: null, versiones: versionesFiltradas };
+        return { error: null, idMarca: marcaObj.id, versiones: versionesFiltradas };
     } catch (error) {
         console.error("❌ [WOKER] Error buscando versiones:", error.message);
         return { error: 'ERROR_API', versiones: [] };
@@ -159,15 +159,18 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
             }
         }
 
-        // 🟢 EL TRUCO DEL CODIA ESTÁ VIVO: Desencriptamos el Token a CODIA puro en formato TEXTO
+        // 🛡️ GUARDIÁN DE CODIA: Desencriptamos y validamos que sean 100% dígitos limpios (sin '=' ni ';')
         let versionDefinitiva = tokenVersion;
         try {
-            if (tokenVersion && tokenVersion.includes(':')) {
-                const base64Part = tokenVersion.split(':')[0]; 
-                const codiaString = Buffer.from(base64Part, 'base64').toString('utf-8'); 
-                if (!isNaN(parseInt(codiaString))) {
+            if (tokenVersion) {
+                const base64Part = tokenVersion.includes(':') ? tokenVersion.split(':')[0] : tokenVersion; 
+                const codiaString = Buffer.from(base64Part, 'base64').toString('utf-8').trim(); 
+                
+                if (/^\d+$/.test(codiaString)) {
                     versionDefinitiva = codiaString; 
-                    console.log(`🧠 [WOKER] Token desencriptado exitosamente a CODIA texto: "${versionDefinitiva}"`);
+                    console.log(`🧠 [WOKER] Token desencriptado exitosamente a CODIA puro: "${versionDefinitiva}"`);
+                } else {
+                    console.log(`⚠️ [WOKER] El desencriptado dio caracteres no numéricos ("${codiaString}"). Usando token original.`);
                 }
             }
         } catch (e) {
@@ -209,6 +212,7 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
         let resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
         let jsonCot = await resCot.json();
 
+        // 🛡️ GUARDIÁN 1: Si falló por DNI o Fecha de nacimiento, reintentamos sin esos campos
         if (!resCot.ok && jsonCot.fields) {
             const erroresFields = JSON.stringify(jsonCot.fields).toLowerCase();
             if (erroresFields.includes('dni') || erroresFields.includes('fecha') || erroresFields.includes('nacimiento')) {
@@ -218,8 +222,17 @@ async function cotizarEnWoker(tokenVersion, datosAuto) {
                 
                 resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
                 jsonCot = await resCot.json();
-                console.log(`✅ [WOKER] Reintento de cotización disparado limpio.`);
+                console.log(`✅ [WOKER] Reintento de cotización sin DNI/Fecha disparado.`);
             }
+        }
+
+        // 🛡️ GUARDIÁN 2: Si Woker rechazó el formato de la versión desencriptada, probamos enviando el tokenVersion original
+        if (!resCot.ok && jsonCot.fields && jsonCot.fields.version && payload.vehiculo.version !== tokenVersion) {
+            console.log(`⚠️ [WOKER] Woker rechazó la versión "${payload.vehiculo.version}". Reintentando con el Token original completo...`);
+            payload.vehiculo.version = tokenVersion;
+            resCot = await fetch(`${BASE_URL}/cotizaciones/auto`, { method: 'POST', headers, body: JSON.stringify(payload) });
+            jsonCot = await resCot.json();
+            console.log(`✅ [WOKER] Reintento con Token original disparado.`);
         }
 
         if (!resCot.ok || !jsonCot.data || !jsonCot.data.id) {
@@ -254,8 +267,6 @@ async function obtenerCotizacionPorId(ticketId) {
     try {
         const resRes = await fetch(`${BASE_URL}/cotizaciones/${ticketId}/resultados`, { headers });
         const jsonRes = await resRes.json();
-        
-   
 
         return {
             detalle: jsonRes.data, 

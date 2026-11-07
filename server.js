@@ -363,6 +363,7 @@ app.post('/webhook', async (req, res) => {
             if (wozMemberId) await moduloWoztell.activarLiveChat(wozMemberId);
             return;
         }
+        if (resWoker.idMarca) datosAuto.idMarca = resWoker.idMarca;
 
         const decision = await moduloIA.arbitroDeVersiones(datosAuto, versiones);
         
