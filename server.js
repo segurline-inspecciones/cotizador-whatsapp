@@ -11,6 +11,7 @@ const moduloIA = require('./2_modulo_ia');
 const moduloWoker = require('./3_modulo_woker');
 const moduloImagen = require('./4_modulo_imagen');
 const moduloWoztell = require('./5_modulo_woztell');
+const moduloZoho = require('./7_modulo_zoho');
 
 let reglasNegocio = null;
 
@@ -554,6 +555,10 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
 
             console.log(`\n🎉 ¡ÉXITO TOTAL! Imagen guardada como: ${nombreArchivoUnico}`);
 
+            // Disparamos la creación del lead en Zoho CRM en segundo plano (sin bloquear el chat del cliente)
+moduloZoho.crearLeadZoho(datosAuto, ticketId, nombreVersionOficial, numeroCliente)
+    .catch(err => console.error("❌ Error en background enviando a Zoho:", err));
+
             const baseUrl = process.env.RENDER_EXTERNAL_URL || `https://cotizador-whatsapp.onrender.com`;
             const urlPublicaImg = `${baseUrl}/public/${nombreArchivoUnico}`;
             
@@ -568,6 +573,8 @@ async function dispararCotizacion(idWoker, nombreVersionOficial, datosAuto, nume
                 wozMemberId: wozMemberId
             };
         }
+
+        
 
     } catch (error) {
         console.error("❌ Error en cotización:", error.message);
